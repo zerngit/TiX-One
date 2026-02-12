@@ -8,9 +8,11 @@ import '@mysten/dapp-kit/dist/index.css';
 
 const queryClient = new QueryClient();
 
+// Hardcode testnet RPC for OneChain
 const { networkConfig } = createNetworkConfig({
-    testnet: { url: 'https://fullnode.testnet.sui.io:443' },
-    mainnet: { url: 'https://fullnode.mainnet.sui.io:443' },
+    testnet: { 
+        url: 'https://rpc-testnet.onelabs.cc:443',
+    },
 });
 
 const root = ReactDOM.createRoot(document.getElementById('root'));

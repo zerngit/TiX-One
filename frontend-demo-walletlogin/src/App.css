@@ -188,6 +188,42 @@ body {
   color: #555;
 }
 
+.buy-button {
+  width: 100%;
+  background: #667eea;
+  color: white;
+  border: none;
+  padding: 14px;
+  font-size: 1rem;
+  font-weight: 600;
+  border-radius: 12px;
+  cursor: pointer;
+  margin-bottom: 12px;
+  transition: all 0.2s ease;
+}
+
+.buy-button:hover:enabled {
+  background: #5568d3;
+}
+
+.buy-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.buy-status {
+  font-size: 0.9rem;
+  margin-bottom: 12px;
+}
+
+.buy-status.error {
+  color: #ff6b6b;
+}
+
+.buy-status.success {
+  color: #22c55e;
+}
+
 .logout-button {
   width: 100%;
   background: #ff6b6b;
