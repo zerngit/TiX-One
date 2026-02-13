@@ -10,148 +10,112 @@ import {
 } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 
-const PACKAGE_ID = '0x1e14e6efe5d73c72e325680daea333dcbfc930bc36572cf8791342907c394343';
+// --- CONFIGURATION ---
+// 1. The Latest Package ID (From your terminal output)
+const PACKAGE_ID = '0xb61f72cc9d7b72b2068f79caf673686075689f71e776aaec8accdc8d989f1a95';
 const OCT_TYPE = '0x2::oct::OCT';
-const TICKET_PRICE = 1_000_000_000n; // 1 OCT with 9 decimals
+
+// 2. The New Price (0.1 OCT)
+const TICKET_PRICE = 100_000_000n; 
 
 function App() {
     const [isOneWalletInstalled, setIsOneWalletInstalled] = useState(false);
     const [isBuying, setIsBuying] = useState(false);
     const [buyError, setBuyError] = useState('');
     const [buyDigest, setBuyDigest] = useState('');
-    const [networkWarning, setNetworkWarning] = useState('');
+    
     const currentAccount = useCurrentAccount();
     const wallets = useWallets();
-
-    // Step 1: Wallet ONLY signs — no dry-run, no RPC call
     const { mutateAsync: signTransaction } = useSignTransaction();
-
-    // Step 2: We execute via our own hardcoded RPC client
     const suiClient = useSuiClient();
 
+    // Fetch Balance for UI
     const { data: octBalance } = useSuiClientQuery(
         'getBalance',
-        {
-            owner: currentAccount?.address,
-            coinType: OCT_TYPE,
-        },
-        {
-            enabled: !!currentAccount,
-            staleTime: 30000,
-            gcTime: 60000,
-        }
-    );
-
-    const { data: octCoins } = useSuiClientQuery(
-        'getCoins',
-        {
-            owner: currentAccount?.address,
-            coinType: OCT_TYPE,
-        },
-        {
-            enabled: !!currentAccount,
-            staleTime: 30000,
-            gcTime: 60000,
-        }
+        { owner: currentAccount?.address, coinType: OCT_TYPE },
+        { enabled: !!currentAccount, staleTime: 10000 }
     );
 
     useEffect(() => {
-        const hasOneWallet = wallets.some((wallet) =>
-            wallet.name === 'OneWallet' || wallet.name.toLowerCase().includes('onewallet')
+        console.log('Available wallets:', wallets.map(w => w.name));
+        
+        // Check if OneWallet is in the available wallets list
+        const hasOneWallet = wallets.some(wallet => 
+            wallet.name === 'OneWallet' || 
+            wallet.name.toLowerCase().includes('onewallet')
         );
+        
+        console.log('OneWallet detected via dapp-kit:', hasOneWallet);
         setIsOneWalletInstalled(hasOneWallet);
-
+        
+        // Also try legacy window check
         const hasWindowOneWallet = !!window.onewallet;
+        console.log('window.onewallet:', hasWindowOneWallet);
+        
         if (hasWindowOneWallet && !hasOneWallet) {
             setIsOneWalletInstalled(true);
-        }
-
-        if (window.onewallet?.chain) {
-            const network = window.onewallet.chain();
-            if (network !== 'testnet') {
-                setNetworkWarning('⚠️ Please switch to OneChain Testnet in your wallet');
-            } else {
-                setNetworkWarning('');
-            }
         }
     }, [wallets]);
 
     const formatOct = (rawBalance) => {
         if (!rawBalance) return '0.00';
-        const asNumber = Number(rawBalance) / 1_000_000_000;
-        return asNumber.toFixed(2);
+        return (Number(rawBalance) / 1_000_000_000).toFixed(2);
     };
 
+    // --- THE ULTRA-LITE BUY FUNCTION ---
     const handleBuyTicket = async () => {
         setBuyError('');
         setBuyDigest('');
+
+        // 1. Confirm Package ID (Double check this!)
+        const PACKAGE_ID = '0xb61f72cc9d7b72b2068f79caf673686075689f71e776aaec8accdc8d989f1a95';
+        const TICKET_PRICE_MIST = 100_000_000n; // 0.1 OCT
 
         if (!currentAccount) {
             setBuyError('Connect OneWallet to continue.');
             return;
         }
-
-        if (window.onewallet?.chain) {
-            const network = window.onewallet.chain();
-            if (network !== 'testnet') {
-                setBuyError('⚠️ Please switch to OneChain Testnet in your OneWallet');
-                return;
-            }
-        }
-
-        const coinList = octCoins?.data || [];
-        const paymentCoin = coinList.find((coin) => BigInt(coin.balance) >= TICKET_PRICE);
-
-        if (!paymentCoin) {
-            setBuyError('Insufficient OCT balance. You need at least 1 OCT.');
-            return;
-        }
-
         setIsBuying(true);
 
         try {
-            // ── SIMPLEST POSSIBLE PTB: just 1 moveCall, no splitCoins ──
-            // The Move contract uses &mut Coin and splits internally
+            console.log('[TiX] Building Clean Transaction...');
+            
             const tx = new Transaction();
             tx.setSender(currentAccount.address);
-            tx.setGasBudget(50_000_000);
-            tx.setGasPrice(1000);
+            
+            // Generous Gas Budget to be safe
+            tx.setGasBudget(100_000_000); 
 
-            // Use the OCT coin directly as gas AND as payment
-            // The contract receives &mut Coin and splits 1 OCT from it
-            tx.setGasPayment([{
-                objectId: paymentCoin.coinObjectId,
-                version: paymentCoin.version,
-                digest: paymentCoin.digest,
-            }]);
+            // --- STEP 1: Create a Temporary Coin ---
+            // We split off 0.1 OCT from your Gas to pay for the ticket.
+            const [tempCoin] = tx.splitCoins(tx.gas, [tx.pure.u64(TICKET_PRICE_MIST)]);
 
-            // SINGLE moveCall — pass tx.gas as the mutable coin reference
+            // --- STEP 2: Buy the Ticket ---
+            // The contract "borrows" the coin, takes the money, and gives it back.
             tx.moveCall({
                 target: `${PACKAGE_ID}::ticket::buy_ticket_oct`,
-                arguments: [tx.gas],
+                arguments: [tempCoin], 
             });
 
-            console.log('[TiX] 1/4 Building TX bytes via our RPC...');
+            // --- STEP 3: THE MISSING FIX ---
+            // We MUST transfer the used coin back to you.
+            // Without this, the transaction fails because the object is "left dangling".
+            tx.transferObjects([tempCoin], currentAccount.address);
 
-            // Pre-build so wallet gets fully resolved bytes
-            const txBytes = await tx.build({ client: suiClient });
-            console.log('[TiX] 2/4 Pre-built (' + txBytes.length + ' bytes). Requesting wallet signature...');
-
-            // Wallet ONLY signs — the TX is already fully resolved
-            const { bytes, signature } = await signTransaction({
-                transaction: Transaction.from(txBytes),
+            console.log('[TiX] Requesting Signature...');
+            
+            const { bytes, signature } = await signTransaction({ 
+                transaction: tx 
             });
-
-            console.log('[TiX] 3/4 Signed. Executing via our RPC...');
-
-            // We execute via our own hardcoded RPC
+            
+            console.log('[TiX] Executing...');
             const result = await suiClient.executeTransactionBlock({
                 transactionBlock: bytes,
                 signature,
                 options: { showEffects: true },
             });
 
-            console.log('[TiX] 4/4 Done:', result.digest);
+            console.log('[TiX] Success:', result.digest);
 
             if (result.effects?.status?.status === 'success') {
                 setBuyDigest(result.digest);
@@ -159,13 +123,8 @@ function App() {
                 setBuyError(`On-chain error: ${result.effects?.status?.error || 'unknown'}`);
             }
         } catch (error) {
-            console.error('[TiX] Error:', error);
-            const msg = error?.message || String(error);
-            if (msg.includes('Rejected') || msg.includes('rejected')) {
-                setBuyError('Transaction was rejected in OneWallet.');
-            } else {
-                setBuyError(msg);
-            }
+            console.error('[TiX] Buy Error:', error);
+            setBuyError(error?.message || 'Transaction failed');
         } finally {
             setIsBuying(false);
         }
@@ -195,7 +154,7 @@ function App() {
                                     ⚠️ OneWallet Extension Required
                                 </p>
                                 <a 
-                                    href="https://chromewebstore.google.com/detail/onewallet/gclmcgmpkgblaglfokkaclneihpnbkli" 
+                                    href="https://chromewebstore.google.com/detail/onewallet/gclmcgmpkgblaglfokkaclneihpnbkli"
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="login-button"
@@ -229,17 +188,17 @@ function App() {
                         </div>
                         <div className="info-box">
                             <p>✅ Connected via {currentAccount.label || 'OneWallet'}</p>
+                            <p>💵 Balance: {formatOct(octBalance?.totalBalance)} OCT</p>
                             <p>🎫 Ready to purchase tickets</p>
-                            <p>💵 OCT Balance: {formatOct(octBalance?.totalBalance)} OCT</p>
-                            {networkWarning && <p style={{ color: '#fbbf24' }}>{networkWarning}</p>}
                         </div>
 
+                        {/* --- BUY BUTTON --- */}
                         <button
                             className="buy-button"
                             onClick={handleBuyTicket}
                             disabled={isBuying}
                         >
-                            {isBuying ? 'Processing...' : 'Buy Ticket (1 OCT)'}
+                            {isBuying ? 'Processing...' : 'Buy Ticket (0.1 OCT)'}
                         </button>
 
                         {buyError && <p className="buy-status error">{buyError}</p>}
@@ -248,6 +207,7 @@ function App() {
                                 Ticket minted! Tx: {buyDigest}
                             </p>
                         )}
+
                         <ConnectButton className="logout-button" />
                     </div>
                 </div>

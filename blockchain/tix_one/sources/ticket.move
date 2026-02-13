@@ -9,7 +9,7 @@ use one::transfer_policy::{Self, TransferPolicy};
 // --- Errors ---
 const EPriceTooHigh: u64 = 1;
 const EIncorrectAmount: u64 = 2;
-const TICKET_PRICE: u64 = 1_000_000_000; // 1 OCT with 9 decimals
+const TICKET_PRICE: u64 = 100_000_000; // 1 OCT with 9 decimals
 
 // --- The Ticket Asset ---
 public struct Ticket has key, store {
