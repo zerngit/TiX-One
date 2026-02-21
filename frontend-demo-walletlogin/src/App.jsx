@@ -6,6 +6,7 @@ import MyTicket from './components/MyTicket';
 import Scanner from './components/Scanner';
 import Marketplace from './components/Marketplace';
 import Checkout from './components/Checkout';
+import BotDetected from './components/BotDetected';
 
 function App() {
     return (
@@ -16,6 +17,7 @@ function App() {
                 <Route path="/scanner" element={<Scanner />} />
                 <Route path="/marketplace" element={<Marketplace />} />
                 <Route path="/buy" element={<Checkout />} />
+                <Route path="/bot-detected" element={<BotDetected />} />
             </Routes>
         </Router>
     );

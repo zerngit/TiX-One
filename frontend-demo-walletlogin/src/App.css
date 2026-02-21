@@ -1137,6 +1137,129 @@ body {
   max-width: 300px;
 }
 
+.delbot-telemetry-box {
+  width: 100%;
+  min-height: 180px;
+  border: 2px dashed #93c5fd;
+  border-radius: 12px;
+  background: #f1f5f9;
+  margin: 1rem 0;
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #3b82f6;
+  font-weight: 700;
+}
+
+.delbot-telemetry-hint {
+  opacity: 0.9;
+}
+
+.delbot-telemetry-coords {
+  position: absolute;
+  left: 12px;
+  bottom: 10px;
+  color: #64748b;
+  font-size: 0.85rem;
+  font-weight: 600;
+}
+
+.delbot-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 1rem;
+}
+
+.delbot-points {
+  background: #e2e8f0;
+  color: #334155;
+  border-radius: 10px;
+  padding: 10px 14px;
+  font-size: 0.9rem;
+  font-weight: 700;
+}
+
+.delbot-clear-btn {
+  max-width: 120px !important;
+  margin: 0 !important;
+}
+
+.delbot-result-box {
+  background: #0f172a;
+  color: #cbd5e1;
+  border-radius: 12px;
+  padding: 14px;
+  text-align: left;
+  min-height: 100px;
+}
+
+.delbot-result-box.human {
+  border: 2px solid #22c55e;
+}
+
+.delbot-result-box.bot,
+.delbot-result-box.error {
+  border: 2px solid #ef4444;
+}
+
+.delbot-result-box.verifying {
+  border: 2px solid #60a5fa;
+}
+
+.delbot-raw-title {
+  display: block;
+  margin-top: 10px;
+  font-size: 0.75rem;
+  color: #94a3b8;
+}
+
+.delbot-result-box pre {
+  margin-top: 8px;
+  font-size: 0.75rem;
+  color: #bfdbfe;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.bot-detected-card {
+  border: 3px solid #ef4444;
+  background: linear-gradient(135deg, #ffffff 0%, #fee2e2 100%);
+}
+
+.bot-detected-card h2 {
+  color: #b91c1c;
+  margin-bottom: 12px;
+}
+
+.bot-detected-card p {
+  color: #7f1d1d;
+  line-height: 1.6;
+}
+
+.bot-detected-raw {
+  margin: 16px 0 20px;
+  text-align: left;
+  background: #111827;
+  border-radius: 12px;
+  padding: 12px;
+}
+
+.bot-detected-raw span {
+  color: #94a3b8;
+  font-size: 0.75rem;
+}
+
+.bot-detected-raw pre {
+  margin-top: 8px;
+  color: #bfdbfe;
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 /* ===== MODAL STYLES ===== */
 .modal-overlay {
   position: fixed;

@@ -9,6 +9,7 @@ import {
     useWallets,
 } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
+import BotDetectionModal from './BotDetectionModal';
 
 // --- CONFIGURATION ---
 const PACKAGE_ID = '0xaab69602cc3fef8fdc9785c38a75508438eb074bf6775bb2e41a921956cf7a3f';
@@ -22,6 +23,9 @@ function Home() {
     const [buyError, setBuyError] = useState('');
     const [buyDigest, setBuyDigest] = useState('');
     
+    // Bot Detection State
+    const [isBotModalOpen, setIsBotModalOpen] = useState(false);
+
     const currentAccount = useCurrentAccount();
     const wallets = useWallets();
     const navigate = useNavigate();
@@ -59,17 +63,35 @@ function Home() {
         return (Number(rawBalance) / 1_000_000_000).toFixed(2);
     };
 
-    const handleBuyTicket = async () => {
+    const handleBuyClick = () => {
         setBuyError('');
         setBuyDigest('');
-
-        const TICKET_PRICE_MIST = 100_000_000n; // 0.1 OCT
 
         if (!currentAccount) {
             setBuyError('Connect OneWallet to continue.');
             return;
         }
+
+        // Open modal instead of buying directly
+        setIsBotModalOpen(true);
+    };
+
+    const handleBotVerified = async (isHuman, result) => {
+        setIsBotModalOpen(false);
+        if (isHuman) {
+            await executeTransaction();
+        } else {
+            console.warn('Bot detected', result);
+            setBuyError('Bot detected! Transaction aborted.');
+            // Optionally navigate to bot detected page
+            navigate('/bot-detected', { state: { result } });
+        }
+    };
+
+    const executeTransaction = async () => {
         setIsBuying(true);
+
+        const TICKET_PRICE_MIST = 100_000_000n; // 0.1 OCT
 
         try {
             console.log('[TiX] Building Clean Transaction...');
@@ -182,7 +204,7 @@ function Home() {
                         {/* --- BUY BUTTON --- */}
                         <button
                             className="buy-button"
-                            onClick={handleBuyTicket}
+                            onClick={handleBuyClick}
                             disabled={isBuying}
                         >
                             {isBuying ? 'Processing...' : 'Buy Ticket (0.1 OCT)'}
@@ -221,6 +243,12 @@ function Home() {
                     </div>
                 </div>
             )}
+            
+            <BotDetectionModal 
+                isOpen={isBotModalOpen} 
+                onClose={() => setIsBotModalOpen(false)} 
+                onVerified={handleBotVerified}
+            />
         </div>
     );
 }
