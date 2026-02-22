@@ -174,6 +174,39 @@ public fun buy_ticket_oct(
     transfer::public_transfer(ticket, ctx.sender());
 }
 
+// --- 4A. PRIMARY SALE (OCT, VARIABLE PRICE) ---
+// Allows the frontend to set the primary-sale price dynamically.
+#[allow(lint(self_transfer))]
+public fun buy_ticket_oct_at_price(
+    mut payment: Coin<0x2::oct::OCT>,
+    price: u64,
+    clock: &Clock,
+    ctx: &mut TxContext
+) {
+    assert!(coin::value(&payment) >= price, EIncorrectAmount);
+
+    let ticket_payment = coin::split(&mut payment, price, ctx);
+    transfer::public_transfer(ticket_payment, @0xe551904e859d3358ca7813622f9ada529ddecd24801a5f6bddb4a521fcb9c940);
+
+    // Return change to sender
+    transfer::public_transfer(payment, ctx.sender());
+
+    // Ticket valid for 30 days
+    let expiration = clock::timestamp_ms(clock) + 2_592_000_000;
+
+    let ticket = Ticket {
+        id: object::new(ctx),
+        artist: string::utf8(b"TiX-One Artist"),
+        event_name: string::utf8(b"TiX-One Event"),
+        seat: string::utf8(b"General Admission"),
+        original_price: price,
+        is_scanned: false,
+        expires_at: expiration,
+        allow_admin_scan: true,
+    };
+    transfer::public_transfer(ticket, ctx.sender());
+}
+
 // --- 4. THE RESALE ENFORCER ---
 public fun verify_resale(
     _policy: &mut TransferPolicy<Ticket>,

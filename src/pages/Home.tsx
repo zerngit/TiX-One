@@ -4,11 +4,34 @@ import { Pagination } from "../components/Pagination";
 import { AuthButtons } from "../components/AuthButtons";
 import { PopBackground } from "../components/PopBackground";
 import { Ticket, Filter } from "lucide-react";
-import { useState, useMemo } from "react";
+import { Link } from "react-router";
+import { useState, useMemo, useEffect } from "react";
+import { useCurrentAccount, useSuiClient } from "@mysten/dapp-kit";
+import { ADMIN_CAP_ID } from "../onechain/config";
 
 const CONCERTS_PER_PAGE = 6;
 
 export default function Home() {
+  const currentAccount = useCurrentAccount();
+  const suiClient = useSuiClient();
+  const [isOrganizer, setIsOrganizer] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    const checkOrganizer = async () => {
+      if (!currentAccount?.address) { setIsOrganizer(false); return; }
+      try {
+        const adminCapObj = await suiClient.getObject({ id: ADMIN_CAP_ID, options: { showOwner: true } });
+        const owner = (adminCapObj as any)?.data?.owner?.AddressOwner;
+        if (!cancelled) setIsOrganizer(owner === currentAccount.address);
+      } catch {
+        if (!cancelled) setIsOrganizer(false);
+      }
+    };
+    checkOrganizer();
+    return () => { cancelled = true; };
+  }, [currentAccount?.address, suiClient]);
+
   const [currentPage, setCurrentPage] = useState(1);
   const [selectedMonth, setSelectedMonth] = useState<string>("all");
   const [selectedRegion, setSelectedRegion] = useState<string>("all");
@@ -95,7 +118,29 @@ export default function Home() {
                 <p className="text-xs sm:text-sm text-pink-300">Blockchain-Powered Ticketing</p>
               </div>
             </div>
-            <AuthButtons />
+            <div className="flex flex-wrap items-center justify-end gap-3">
+              <Link
+                to="/my-ticket"
+                className="px-4 py-2 rounded-lg bg-purple-900/50 border-2 border-pink-500/40 text-white hover:bg-purple-800/60 hover:border-pink-400 transition-all text-sm neon-border"
+              >
+                My Tickets
+              </Link>
+              <Link
+                to="/marketplace"
+                className="px-4 py-2 rounded-lg bg-purple-900/50 border-2 border-pink-500/40 text-white hover:bg-purple-800/60 hover:border-pink-400 transition-all text-sm neon-border"
+              >
+                Marketplace
+              </Link>
+              {isOrganizer && (
+                <Link
+                  to="/scanner"
+                  className="px-4 py-2 rounded-lg bg-purple-900/50 border-2 border-pink-500/40 text-white hover:bg-purple-800/60 hover:border-pink-400 transition-all text-sm neon-border"
+                >
+                  Scanner
+                </Link>
+              )}
+              <AuthButtons />
+            </div>
           </div>
         </div>
       </header>

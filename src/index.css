@@ -394,9 +394,9 @@
   }
 
   body {
-    background-color: var(--background);
-    color: var(--foreground);
-  }
+  background: var(--bg-gradient);
+  color: var(--text-primary);
+}
 
   * {
     border-color: var(--border);
@@ -2247,5 +2247,326 @@ html {
 @keyframes pulse {
   50% {
     opacity: .5;
+  }
+}
+
+/* --- App typography + ticket accent (hand-authored overrides) --- */
+:root {
+  /* Background */
+  --bg-main: #070B1A;
+  --bg-gradient: radial-gradient(
+    circle at top,
+    #0D1440 0%,
+    #070B1A 45%,
+    #050814 100%
+  );
+
+  /* Cards */
+  --card-bg: rgba(255, 255, 255, 0.06);
+  --card-border: rgba(255, 255, 255, 0.12);
+  --card-shadow: 0 20px 60px rgba(0, 0, 0, 0.55);
+
+  /* Neon Accent */
+  --neon-cyan: #4FD1FF;
+  --neon-green: #2EE6A6;
+  --neon-purple: #8B7CFF;
+
+  /* Tailwind-friendly accent (rgb triplet for: rgb(var(--ticket-accent)/alpha)) */
+  --ticket-accent: 79 209 255;
+
+  /* Text */
+  --text-main: #FFFFFF;
+  --text-primary: rgba(255, 255, 255, 0.92);
+  --text-secondary: rgba(255, 255, 255, 0.65);
+  --text-muted: rgba(255, 255, 255, 0.45);
+
+  /* Glow */
+  --glow-cyan: 0 0 12px rgba(79, 209, 255, 0.6),
+               0 0 28px rgba(79, 209, 255, 0.35);
+  --glow-green: 0 0 12px rgba(46, 230, 166, 0.6),
+                0 0 28px rgba(46, 230, 166, 0.35);
+}
+
+/* ================================
+   GLOBAL
+   ================================ */
+
+body {
+  margin: 0;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  background: var(--bg-gradient);
+  color: var(--text-primary);
+}
+
+/* ================================
+   HERO
+   ================================ */
+
+.ticket-hero {
+  position: relative;
+  height: 160px;
+  overflow: hidden;
+}
+
+.ticket-hero img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.ticket-hero::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    to bottom,
+    rgba(7, 11, 26, 0.2),
+    rgba(7, 11, 26, 0.9)
+  );
+}
+
+.hero-text {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  align-items: center;
+  z-index: 2;
+  padding: 16px;
+  text-align: center;
+}
+
+.hero-text h1 {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--text-main);
+  text-shadow: 0 0 14px rgba(79, 209, 255, 0.35);
+  margin: 0;
+}
+
+.hero-text span {
+  font-size: 14px;
+  color: var(--neon-cyan);
+  margin-top: 6px;
+}
+
+/* ================================
+   TICKET CARD
+   ================================ */
+
+.ticket-container {
+  padding: 28px 16px 40px;
+}
+
+.ticket-card {
+  background: var(--card-bg);
+  border: 1px solid var(--card-border);
+  border-radius: 22px;
+  box-shadow: var(--card-shadow);
+  backdrop-filter: blur(14px);
+}
+
+.ticket-card--padded {
+  padding: 24px;
+}
+
+.ticket-card--flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.ticket-section {
+  padding: 22px;
+}
+
+/* ================================
+   QR SECTION
+   ================================ */
+
+.ticket-main {
+  display: grid;
+  grid-template-columns: 360px 1fr;
+  gap: 18px;
+}
+
+.qr-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+}
+
+.qr-label {
+  font-size: 13px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.qr-wrapper {
+  background: #FFFFFF;
+  padding: 16px;
+  border-radius: 18px;
+  box-shadow: var(--glow-cyan);
+}
+
+.ticket-status {
+  margin-top: 6px;
+  background: rgba(46, 230, 166, 0.15);
+  color: var(--neon-green);
+  border: 1px solid rgba(46, 230, 166, 0.35);
+  box-shadow: var(--glow-green);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* ================================
+   INFO BLOCKS
+   ================================ */
+
+.info-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 14px;
+}
+
+.info-card {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 18px;
+  padding: 16px;
+}
+
+.info-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.info-value {
+  font-size: 16px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.info-value--seat {
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* ================================
+   VERIFIED SECTION
+   ================================ */
+
+.verify-bar {
+  margin-top: 18px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.verify-left {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.verified-badge {
+  color: var(--neon-cyan);
+  border: 1px solid rgba(79, 209, 255, 0.4);
+  box-shadow: var(--glow-cyan);
+  border-radius: 999px;
+  padding: 6px 16px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.ticket-id-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 10px;
+}
+
+.ticket-id-btn {
+  flex: 1;
+  background: rgba(0, 0, 0, 0.25);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  border-radius: 14px;
+  padding: 10px 12px;
+  text-align: left;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+  font-size: 14px;
+  color: rgba(255, 255, 255, 0.90);
+  cursor: pointer;
+}
+
+.ticket-btn {
+  border-radius: 14px;
+  padding: 12px 14px;
+  font-weight: 600;
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
+  cursor: pointer;
+  transition: background 150ms ease, transform 150ms ease;
+}
+
+.ticket-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ticket-btn--primary {
+  border-color: rgba(79, 209, 255, 0.35);
+  background: rgba(79, 209, 255, 0.14);
+}
+
+.ticket-btn--primary:hover {
+  background: rgba(79, 209, 255, 0.18);
+}
+
+.ticket-btn--ghost {
+  background: rgba(0, 0, 0, 0.20);
+}
+
+.ticket-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ================================
+   RESPONSIVE
+   ================================ */
+
+@media (max-width: 900px) {
+  .ticket-main {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .ticket-container {
+    padding: 22px 12px 34px;
+  }
+  .ticket-section {
+    padding: 18px;
+  }
+  .hero-text h1 {
+    font-size: 22px;
+  }
+  .info-value--seat {
+    font-size: 20px;
   }
 }

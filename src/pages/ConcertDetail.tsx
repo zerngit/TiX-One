@@ -8,9 +8,11 @@ import {
   Wallet,
   Music,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useAuth } from "../context/AuthContext";
 import { PopBackground } from "../components/PopBackground";
+import { ConnectButton } from "@mysten/dapp-kit";
+import { useBuyTicket } from "../onechain/useBuyTicket";
 
 export default function ConcertDetail() {
   const { id } = useParams();
@@ -19,12 +21,22 @@ export default function ConcertDetail() {
   const [authType, setAuthType] = useState<
     "onechain" | "spotify" | null
   >(null);
-  const {
-    isOneChainConnected,
-    isSpotifyConnected,
-    connectOneChain,
-    connectSpotify,
-  } = useAuth();
+  const { isSpotifyConnected, connectSpotify } = useAuth();
+  const { buyTicketAtPrice, isBuying, buyError, buyDigest, isConnected } = useBuyTicket();
+
+  const parseConcertPriceMist = (priceLabel: string): bigint => {
+    const raw = String(priceLabel ?? "")
+      .trim()
+      .replace(/\s*oct\s*$/i, "")
+      .trim();
+    if (!raw) throw new Error("Concert price is missing.");
+    if (!/^\d+(\.\d{0,9})?$/.test(raw)) {
+      throw new Error(`Invalid concert price format: ${priceLabel}`);
+    }
+    const [intPart, fracPart = ""] = raw.split(".");
+    const fracPadded = (fracPart + "0".repeat(9)).slice(0, 9);
+    return BigInt(intPart) * 1_000_000_000n + BigInt(fracPadded);
+  };
 
   if (!concert) {
     return (
@@ -50,13 +62,31 @@ export default function ConcertDetail() {
   }
 
   const handleBuyTicket = () => {
-    if (isOneChainConnected) {
-      // Already connected, proceed with ticket purchase
-      alert("Proceeding to ticket purchase/queue...");
-    } else {
+    if (!isConnected) {
       setAuthType("onechain");
       setShowAuthModal(true);
+      return;
     }
+
+    let priceMist: bigint;
+    try {
+      priceMist = parseConcertPriceMist(concert?.price || "");
+      if (priceMist <= 0n) throw new Error("Concert price must be greater than 0.");
+    } catch (e: any) {
+      alert(e?.message || "Invalid concert price");
+      return;
+    }
+
+    buyTicketAtPrice(priceMist, {
+      artist: concert.artist,
+      eventName: concert.title,
+      seat: "General Admission",
+    }).then((digest) => {
+      if (digest) {
+        const shouldRedirect = window.confirm("Ticket minted! Go to My Tickets now?");
+        if (shouldRedirect) window.location.assign("/my-ticket");
+      }
+    });
   };
 
   const handleAuthorizeFan = () => {
@@ -75,13 +105,17 @@ export default function ConcertDetail() {
   };
 
   const handleModalAuth = () => {
-    if (authType === "onechain") {
-      connectOneChain();
-    } else if (authType === "spotify") {
+    if (authType === "spotify") {
       connectSpotify();
     }
     closeModal();
   };
+
+  useEffect(() => {
+    if (showAuthModal && authType === "onechain" && isConnected) {
+      closeModal();
+    }
+  }, [showAuthModal, authType, isConnected]);
 
   return (
     <div className="min-h-screen relative overflow-hidden">
@@ -210,13 +244,29 @@ export default function ConcertDetail() {
             <div className="space-y-4">
               <button
                 onClick={handleBuyTicket}
-                className="w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white py-4 px-6 rounded-xl hover:from-pink-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-pink-500/50 flex items-center justify-center gap-3 text-base neon-border"
+                disabled={isBuying}
+                className="w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white py-4 px-6 rounded-xl hover:from-pink-700 hover:to-purple-700 transition-all duration-200 shadow-lg hover:shadow-pink-500/50 flex items-center justify-center gap-3 text-base neon-border disabled:opacity-60 disabled:cursor-not-allowed"
               >
                 <Wallet className="w-5 h-5" />
-                {isOneChainConnected
-                  ? "Buy Ticket / Join Queue"
-                  : "Connect to Buy Ticket"}
+                {!isConnected
+                  ? "Connect to Buy Ticket"
+                  : isBuying
+                  ? "Processing..."
+                  : "Buy Ticket / Join Queue"}
               </button>
+
+              {(buyError || buyDigest) && (
+                <div className="bg-purple-950/30 backdrop-blur-sm rounded-xl p-4 border-2 border-pink-500/30 neon-border">
+                  {buyError && (
+                    <p className="text-sm text-red-300">{buyError}</p>
+                  )}
+                  {buyDigest && (
+                    <p className="text-sm text-green-300">
+                      Ticket minted! Tx: <span className="font-mono">{buyDigest}</span>
+                    </p>
+                  )}
+                </div>
+              )}
 
               <button
                 onClick={handleAuthorizeFan}
@@ -229,7 +279,7 @@ export default function ConcertDetail() {
               </button>
             </div>
 
-            {!isOneChainConnected && !isSpotifyConnected && (
+            {!isConnected && !isSpotifyConnected && (
               <p className="text-sm text-pink-300 text-center bg-purple-950/30 rounded-lg p-3 border-2 border-pink-500/30 neon-border">
                 Connect your wallet or Spotify to access
                 ticketing features
@@ -275,12 +325,7 @@ export default function ConcertDetail() {
 
             <div className="space-y-3">
               {authType === "onechain" ? (
-                <button
-                  onClick={handleModalAuth}
-                  className="w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white py-3 px-6 rounded-xl hover:from-pink-700 hover:to-purple-700 transition-all duration-200 text-base shadow-lg neon-border"
-                >
-                  Connect OneWallet
-                </button>
+                <ConnectButton className="w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white py-3 px-6 rounded-xl hover:from-pink-700 hover:to-purple-700 transition-all duration-200 text-base shadow-lg neon-border" />
               ) : (
                 <button
                   onClick={handleModalAuth}
@@ -289,7 +334,7 @@ export default function ConcertDetail() {
                   Connect Spotify
                 </button>
               )}
-
+              
               <button
                 onClick={closeModal}
                 className="w-full bg-purple-900/50 border-2 border-pink-500/50 text-white py-3 px-6 rounded-xl hover:bg-purple-800/60 hover:border-pink-400 transition-all duration-200 text-base neon-border"
