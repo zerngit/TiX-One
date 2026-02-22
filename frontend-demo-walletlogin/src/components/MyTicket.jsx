@@ -4,10 +4,11 @@ import { useCurrentAccount, useSuiClient, useSignPersonalMessage, useSignAndExec
 import { QRCodeSVG } from 'qrcode.react';
 import { Transaction } from '@mysten/sui/transactions';
 
-const PACKAGE_ID = '0xaab69602cc3fef8fdc9785c38a75508438eb074bf6775bb2e41a921956cf7a3f';
+const PACKAGE_ID = '0x5078e12cb9933003a472371980d685c5fcaf49018eacf26e7dbf3b469eeea815';
 const TICKET_TYPE = `${PACKAGE_ID}::ticket::Ticket`;
 const KIOSK_TYPE = '0x2::kiosk::Kiosk';
 const KIOSK_OWNER_CAP_TYPE = '0x2::kiosk::KioskOwnerCap';
+const LISTING_REGISTRY_ID = '0x8d041f2f03636d4c27264c8f53afd3b5e8171753a24f9b5a56ca6690f12cb829';
 
 function MyTicket() {
     const [tickets, setTickets] = useState([]);
@@ -198,7 +199,8 @@ function MyTicket() {
                     tx.object(kiosk.data.objectId),
                     tx.object(kioskOwnerCap.data.objectId),
                     tx.object(selectedTicket.objectId),
-                    tx.pure.u64(priceInMist)
+                    tx.pure.u64(priceInMist),
+                    tx.object(LISTING_REGISTRY_ID)
                 ],
             });
 
@@ -255,7 +257,8 @@ function MyTicket() {
                     tx.object(kiosk.data.objectId),
                     tx.object(kioskOwnerCap.data.objectId),
                     tx.object(selectedTicket.objectId),
-                    tx.pure.u64(priceInMist)
+                    tx.pure.u64(priceInMist),
+                    tx.object(LISTING_REGISTRY_ID)
                 ],
             });
 

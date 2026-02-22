@@ -11,7 +11,7 @@ import {
 import { Transaction } from '@mysten/sui/transactions';
 
 // --- CONFIGURATION ---
-const PACKAGE_ID = '0xaab69602cc3fef8fdc9785c38a75508438eb074bf6775bb2e41a921956cf7a3f';
+const PACKAGE_ID = '0x5078e12cb9933003a472371980d685c5fcaf49018eacf26e7dbf3b469eeea815';
 const OCT_TYPE = '0x2::oct::OCT';
 const CLOCK_OBJECT = '0x6';
 const TICKET_PRICE = 100_000_000n; 

@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router-dom';
 import { useCurrentAccount, useSuiClient, useSignAndExecuteTransaction } from '@mysten/dapp-kit';
 import { Transaction } from '@mysten/sui/transactions';
 
-const PACKAGE_ID = '0xaab69602cc3fef8fdc9785c38a75508438eb074bf6775bb2e41a921956cf7a3f';
+const PACKAGE_ID = '0x5078e12cb9933003a472371980d685c5fcaf49018eacf26e7dbf3b469eeea815';
 const TICKET_TYPE = `${PACKAGE_ID}::ticket::Ticket`;
 const TICKET_LISTED_EVENT = `${PACKAGE_ID}::ticket::TicketListedEvent`;
-const TRANSFER_POLICY_ID = '0x8997dc1f0088d885da8cbd644c72b301eb27a68fb12da3f5d0c52659a8ce4209';
+const TRANSFER_POLICY_ID = '0x95b4586f63d5693f394a1fddb7a4e52b70e26ad0b3eaf419fe7d7184760fa965';
+const LISTING_REGISTRY_ID = '0x8d041f2f03636d4c27264c8f53afd3b5e8171753a24f9b5a56ca6690f12cb829';
 
 function Marketplace() {
     const [listings, setListings] = useState([]);
@@ -236,6 +237,7 @@ function Marketplace() {
                 target: `${PACKAGE_ID}::ticket::verify_resale`,
                 arguments: [
                     tx.object(TRANSFER_POLICY_ID), // The global policy
+                    tx.object(LISTING_REGISTRY_ID),
                     transferRequest,               // The receipt from the purchase
                     purchasedTicket                // The ticket itself
                 ],

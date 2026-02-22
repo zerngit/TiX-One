@@ -7,6 +7,7 @@ use one::coin::{Self, Coin};
 use one::transfer_policy::{Self, TransferPolicy};
 use one::clock::{Self, Clock};
 use one::kiosk::{Self, Kiosk};
+use one::dynamic_field;
 use one::object;
 
 // --- Errors ---
@@ -14,6 +15,9 @@ const EPriceTooHigh: u64 = 1;
 const EIncorrectAmount: u64 = 2;
 const EAlreadyScanned: u64 = 3;
 const ETicketExpired: u64 = 4;
+const EListingNotApproved: u64 = 5;
+const EListingPriceMismatch: u64 = 6;
+const EListingSourceMismatch: u64 = 7;
 const TICKET_PRICE: u64 = 100_000_000; // 0.1 OCT with 9 decimals
 
 // --- The Ticket Asset ---
@@ -39,6 +43,12 @@ public struct CheckInRecord has key, store {
 
 public struct PriceCapRule has drop {}
 public struct TICKET has drop {}
+public struct ListingRegistry has key, store { id: UID }
+
+public struct ListingApproval has store, drop {
+    kiosk_id: ID,
+    approved_price: u64,
+}
 
 // --- Custom Event for Global Marketplace Discovery ---
 public struct TicketListedEvent has copy, drop {
@@ -75,6 +85,7 @@ fun init(otw: TICKET, ctx: &mut TxContext) {
     transfer::transfer(AdminCap { id: object::new(ctx) }, ctx.sender());
     transfer::public_transfer(display, ctx.sender());
     transfer::public_transfer(publisher, ctx.sender());
+    transfer::share_object(ListingRegistry { id: object::new(ctx) });
 }
 
 // --- 1. SETTING THE LAW ---
@@ -167,11 +178,41 @@ public fun buy_ticket_oct(
 public fun verify_resale(
     _policy: &mut TransferPolicy<Ticket>,
     request: &mut transfer_policy::TransferRequest<Ticket>,
+    registry: &mut ListingRegistry,
     ticket: &Ticket
 ) {
     let paid_amount = transfer_policy::paid(request);
     assert!(paid_amount <= ticket.original_price, EPriceTooHigh);
+
+    let ticket_id = object::id(ticket);
+    assert!(transfer_policy::item(request) == ticket_id, EListingNotApproved);
+    assert!(dynamic_field::exists_with_type<ID, ListingApproval>(&registry.id, ticket_id), EListingNotApproved);
+
+    let approval = dynamic_field::remove<ID, ListingApproval>(&mut registry.id, ticket_id);
+    assert!(approval.approved_price == paid_amount, EListingPriceMismatch);
+    assert!(approval.kiosk_id == transfer_policy::from(request), EListingSourceMismatch);
+
     transfer_policy::add_receipt(PriceCapRule {}, request);
+}
+
+fun upsert_listing_approval(
+    registry: &mut ListingRegistry,
+    ticket_id: ID,
+    kiosk_id: ID,
+    price: u64,
+) {
+    if (dynamic_field::exists_with_type<ID, ListingApproval>(&registry.id, ticket_id)) {
+        let _: ListingApproval = dynamic_field::remove<ID, ListingApproval>(&mut registry.id, ticket_id);
+    };
+
+    dynamic_field::add(
+        &mut registry.id,
+        ticket_id,
+        ListingApproval {
+            kiosk_id,
+            approved_price: price,
+        }
+    );
 }
 
 // --- 4B. EMIT TICKET EVENT (Global Marketplace Discovery) ---
@@ -198,10 +239,15 @@ public fun safe_list_ticket(
     cap: &one::kiosk::KioskOwnerCap,
     ticket: Ticket,
     price: u64,
+    registry: &mut ListingRegistry,
     ctx: &mut TxContext
 ) {
     // 1. The Ultimate Block: Crash the transaction if price > original
     assert!(price <= ticket.original_price, EPriceTooHigh);
+
+    let ticket_id = object::id(&ticket);
+    let kiosk_id = object::id(kiosk);
+    upsert_listing_approval(registry, ticket_id, kiosk_id, price);
 
     // 2. Emit the event for the Marketplace to discover
     emit_listing_event(&ticket, price, ctx);
@@ -216,10 +262,15 @@ public fun safe_private_list_ticket(
     cap: &one::kiosk::KioskOwnerCap,
     ticket: Ticket,
     price: u64,
+    registry: &mut ListingRegistry,
     _ctx: &mut TxContext
 ) {
     // 1. Prevent scalping on private links too!
     assert!(price <= ticket.original_price, EPriceTooHigh);
+
+    let ticket_id = object::id(&ticket);
+    let kiosk_id = object::id(kiosk);
+    upsert_listing_approval(registry, ticket_id, kiosk_id, price);
 
     // 2. Place and list without emitting the discovery event
     one::kiosk::place_and_list(kiosk, cap, ticket, price);
