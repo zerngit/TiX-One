@@ -1,4 +1,4 @@
-import { createBrowserRouter } from "react-router";
+import { createBrowserRouter } from "react-router-dom";
 import Home from "./pages/Home";
 import ConcertDetail from "./pages/ConcertDetail";
 import MyTicket from "./pages/MyTicket";
@@ -11,34 +11,34 @@ import Appeal from "./pages/Appeal";
 export const router = createBrowserRouter([
   {
     path: "/",
-    Component: Home,
+    element: <Home />,
   },
   {
     path: "/concert/:id",
-    Component: ConcertDetail,
+    element: <ConcertDetail />,
   },
   {
     path: "/my-ticket",
-    Component: MyTicket,
+    element: <MyTicket />,
   },
   {
     path: "/marketplace",
-    Component: Marketplace,
+    element: <Marketplace />,
   },
   {
     path: "/scanner",
-    Component: Scanner,
+    element: <Scanner />,
   },
   {
     path: "/buy",
-    Component: Checkout,
+    element: <Checkout />,
   },
   {
     path: "/bot-detected",
-    Component: BotDetected,
+    element: <BotDetected />,
   },
   {
     path: "/appeal",
-    Component: Appeal,
+    element: <Appeal />,
   },
 ]);
