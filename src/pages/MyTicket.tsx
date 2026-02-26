@@ -20,6 +20,7 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { concerts } from "../data/concerts";
+import { AiSquadPopup } from "../components/AiSquadPopup";
 import {
   KIOSK_OWNER_CAP_TYPE,
   LISTING_REGISTRY_ID,
@@ -101,6 +102,7 @@ export default function MyTicketPage() {
   const [isCreatingKiosk, setIsCreatingKiosk] = useState(false);
   const [isListing, setIsListing] = useState(false);
   const [showListingModal, setShowListingModal] = useState<false | "public" | "private">(false);
+  const [isSquadPopupOpen, setIsSquadPopupOpen] = useState(false);
 
   const [privateLinks, setPrivateLinks] = useState<Record<string, string>>({});
   const [listingStatusByTicketId, setListingStatusByTicketId] = useState<
@@ -759,7 +761,24 @@ export default function MyTicketPage() {
                     </div>
                   </div>
 
-                  {/* 4. RESALE ACTIONS */}
+                  {/* 4. SQUAD ROOM */}
+                  <div className="mt-14 rounded-2xl border border-pink-500/20 bg-purple-950/50 backdrop-blur-md p-5 shadow-xl">
+                    <div className="text-sm font-bold text-white drop-shadow-md">Squad Room</div>
+                    <div className="mt-1 text-sm text-gray-300">
+                      Create a Discord squad room linked to this Ticket ID.
+                    </div>
+                    <div className="mt-4">
+                      <button
+                        type="button"
+                        onClick={() => setIsSquadPopupOpen(true)}
+                        className="w-full rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 border-none text-white py-3 px-5 hover:from-pink-500 hover:to-purple-500 transition-colors font-bold shadow-[0_0_15px_rgba(236,72,153,0.4)]"
+                      >
+                        Match Me with a Squad
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 5. RESALE ACTIONS */}
                   <div className="mt-14 rounded-2xl border border-pink-500/20 bg-purple-950/50 backdrop-blur-md p-5 shadow-xl">
                     <div className="text-sm font-bold text-white drop-shadow-md">Resale Options</div>
                     <div className="mt-1 text-sm text-gray-300">
@@ -863,6 +882,14 @@ export default function MyTicketPage() {
           </>
         )}
       </div>
+
+      <AiSquadPopup
+        isOpen={isSquadPopupOpen}
+        onClose={() => setIsSquadPopupOpen(false)}
+        ticketId={selectedTicket?.objectId || ""}
+        concertName={selectedConcert?.title || selectedTicket?.event_name || "Concert"}
+        concertId={selectedConcert?.id || ""}
+      />
 
       {/* --- MODAL --- */}
       {showListingModal && selectedTicket && (

@@ -1,0 +1,20 @@
+{
+  "name": "tix-one-discord-squad-backend",
+  "version": "0.1.0",
+  "private": true,
+  "main": "server.js",
+  "type": "commonjs",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "dependencies": {
+    "@duffel/api": "^4.21.5",
+    "@google/generative-ai": "^0.24.1",
+    "cors": "^2.8.5",
+    "discord.js": "^14.19.3",
+    "dotenv": "^16.6.1",
+    "express": "^4.19.2",
+    "ts-node": "^10.9.2"
+  }
+}

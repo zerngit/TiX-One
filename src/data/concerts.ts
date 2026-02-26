@@ -13,6 +13,9 @@ export interface Concert {
   description: string;
   availableTickets: number;
   genre: string;
+  lat: number;        // Venue latitude  — used by AI tools (weather, nearby places, transit)
+  lon: number;        // Venue longitude — used by AI tools
+  airportCode: string; // Nearest IATA airport code — used by Amadeus flight search
 }
 
 export const concerts: Concert[] = [
@@ -20,7 +23,7 @@ export const concerts: Concert[] = [
     id: "1",
     artist: "The Midnight Echoes",
     title: "Neon Dreams Tour",
-    date: "March 15, 2026",
+    date: "March 27, 2026",
     time: "8:00 PM",
     venue: "Crypto Arena",
     location: "Los Angeles, CA",
@@ -30,7 +33,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1571839154183-6bb84a567903?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb25jZXJ0JTIwc3RhZ2UlMjBuZW9uJTIwbGlnaHRzJTIwZWxlY3Ryb25pY3xlbnwxfHx8fDE3NzA5NjM1MzF8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Experience an unforgettable night of synthwave and electronic music. The Midnight Echoes bring their acclaimed Neon Dreams Tour to LA for one night only. All tickets are minted as NFTs on the blockchain.",
     availableTickets: 2500,
-    genre: "Electronic/Synthwave"
+    genre: "Electronic/Synthwave",
+    lat: 34.0430,
+    lon: -118.2673,
+    airportCode: "LAX"
   },
   {
     id: "2",
@@ -46,7 +52,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1623182741954-2d9cce5a85d2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxpbmRpZSUyMHBvcCUyMGNvbmNlcnQlMjBldGhlcmVhbCUyMHBlcmZvcm1hbmNlfGVufDF8fHx8MTc3MDk2MzUzMXww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Luna Rise returns with their breathtaking live performance. Combining stunning visuals with ethereal vocals, this show promises to be a celestial journey. Blockchain-verified tickets ensure authenticity.",
     availableTickets: 4200,
-    genre: "Indie Pop"
+    genre: "Indie Pop",
+    lat: 40.7505,
+    lon: -73.9934,
+    airportCode: "JFK"
   },
   {
     id: "3",
@@ -62,7 +71,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1624929303661-22c5bce0169b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtdXNpYyUyMGZlc3RpdmFsJTIwY3Jvd2QlMjBlbGVjdHJvbmljfGVufDF8fHx8MTc3MDk2MzUzMXww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "The world's first fully blockchain-powered music festival. Digital Pulse headlines an incredible lineup of electronic artists. Your NFT ticket grants access to exclusive metaverse content.",
     availableTickets: 8000,
-    genre: "EDM/Festival"
+    genre: "EDM/Festival",
+    lat: 25.7959,
+    lon: -80.1300,
+    airportCode: "MIA"
   },
   {
     id: "4",
@@ -78,7 +90,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1720097550711-d1a5bfb9dbf9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxhY291c3RpYyUyMGd1aXRhciUyMGludGltYXRlJTIwY29uY2VydHxlbnwxfHx8fDE3NzA5NjM1MzJ8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "An intimate acoustic evening with Acoustic Souls. Strip back the electronics and enjoy raw, authentic music. Limited capacity venue with blockchain ticketing for secure entry.",
     availableTickets: 850,
-    genre: "Acoustic/Folk"
+    genre: "Acoustic/Folk",
+    lat: 34.0590,
+    lon: -118.3073,
+    airportCode: "LAX"
   },
   {
     id: "5",
@@ -94,7 +109,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1761381628917-fc353225409d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoaXAlMjBob3AlMjBjb25jZXJ0JTIwc3RhZ2UlMjBsaWdodHN8ZW58MXx8fHwxNzcwOTYzNTMyfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Rhythm Chain brings their revolutionary sound system to the iconic Red Rocks. Experience music like never before with spatially-aware blockchain audio technology. Each ticket is a unique digital collectible.",
     availableTickets: 9500,
-    genre: "Hip Hop/Electronic"
+    genre: "Hip Hop/Electronic",
+    lat: 39.6654,
+    lon: -105.2057,
+    airportCode: "DEN"
   },
   {
     id: "6",
@@ -110,7 +128,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1767969457898-51d5e9cf81d2?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwb3AlMjByb2NrJTIwY29uY2VydCUyMHN0YWdlJTIwcGVyZm9ybWFuY2V8ZW58MXx8fHwxNzcwOTYzNTMyfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Stellar Harmony embarks on their most ambitious tour yet. Featuring a 360-degree stage setup and immersive light shows. Verified fan program available through Spotify integration.",
     availableTickets: 5600,
-    genre: "Pop/Rock"
+    genre: "Pop/Rock",
+    lat: 33.9583,
+    lon: -118.3417,
+    airportCode: "LAX"
   },
   {
     id: "7",
@@ -126,7 +147,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1769812343936-fb9fc21f99c0?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxqYXp6JTIwY29uY2VydCUyMHBlcmZvcm1hbmNlJTIwc3RhZ2V8ZW58MXx8fHwxNzcwOTgwOTg3fDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "An intimate evening of contemporary jazz fusion. The Jazz Collective brings together world-class musicians for an unforgettable improvisational experience. Blockchain-verified tickets available.",
     availableTickets: 450,
-    genre: "Jazz"
+    genre: "Jazz",
+    lat: 35.6895,
+    lon: 139.6917,
+    airportCode: "HND"
   },
   {
     id: "8",
@@ -142,7 +166,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1709731191876-899e32264420?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyb2NrJTIwYmFuZCUyMGNvbmNlcnQlMjBsaWdodHN8ZW58MXx8fHwxNzcwOTUxNzgzfDA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Thunder Road returns with their explosive live show. Expect power chords, pyrotechnics, and pure rock energy. All tickets minted as NFTs with exclusive backstage content.",
     availableTickets: 12000,
-    genre: "Rock"
+    genre: "Rock",
+    lat: 51.5030,
+    lon: 0.0030,
+    airportCode: "LHR"
   },
   {
     id: "9",
@@ -158,7 +185,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1519683000900-034603c717b3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjbGFzc2ljYWwlMjBvcmNoZXN0cmElMjBjb25jZXJ0JTIwaGFsbHxlbnwxfHx8fDE3NzA4ODc5Nzh8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Experience timeless classical masterpieces in one of the world's finest concert halls. First-ever blockchain-ticketed symphony with NFT program notes and digital memorabilia.",
     availableTickets: 2400,
-    genre: "Classical"
+    genre: "Classical",
+    lat: 52.5097,
+    lon: 13.3690,
+    airportCode: "BER"
   },
   {
     id: "10",
@@ -174,7 +204,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1720097550711-d1a5bfb9dbf9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjb3VudHJ5JTIwbXVzaWMlMjBjb25jZXJ0JTIwb3V0ZG9vcnxlbnwxfHx8fDE3NzA5ODA5ODh8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Nashville's finest country music under the stars. Wildfire Country Band plays all your favorites with special guest appearances. Secure your spot with blockchain tickets.",
     availableTickets: 7500,
-    genre: "Country"
+    genre: "Country",
+    lat: 36.1627,
+    lon: -86.7816,
+    airportCode: "BNA"
   },
   {
     id: "11",
@@ -190,7 +223,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1567105800714-0106cfd63b55?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtZXRhbCUyMGNvbmNlcnQlMjBjcm93ZCUyMGhlYWRiYW5naW5nfGVufDF8fHx8MTc3MDk4MDk4OXww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Legendary metal band Iron Legion brings their earth-shattering sound to Paris. Expect brutal riffs, thunderous drums, and an unforgettable mosh pit. NFT tickets with exclusive band artwork.",
     availableTickets: 15000,
-    genre: "Metal"
+    genre: "Metal",
+    lat: 48.8384,
+    lon: 2.3788,
+    airportCode: "CDG"
   },
   {
     id: "12",
@@ -206,7 +242,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1615422079250-5d9aa901ef1b?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxyZWdnYWUlMjBtdXNpYyUyMGZlc3RpdmFsJTIwamFtYWljYXxlbnwxfHx8fDE3NzA5ODA5ODl8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Celebrate authentic reggae music at the birthplace of the genre. Reggae Vibes headlines a day-long festival with multiple artists. Beach vibes and blockchain technology unite.",
     availableTickets: 10000,
-    genre: "Reggae"
+    genre: "Reggae",
+    lat: 17.9977,
+    lon: -76.7930,
+    airportCode: "KIN"
   },
   {
     id: "13",
@@ -222,7 +261,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1746007191229-7b93f195850c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxsYXRpbiUyMG11c2ljJTIwY29uY2VydCUyMHNhbHNhfGVufDF8fHx8MTc3MDk4MDk4OXww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Get ready to dance all night to the hottest salsa rhythms. Fuego Latino brings passionate Latin music and energy to Buenos Aires. NFT tickets include dance tutorial videos.",
     availableTickets: 3200,
-    genre: "Latin/Salsa"
+    genre: "Latin/Salsa",
+    lat: -34.6011,
+    lon: -58.3834,
+    airportCode: "EZE"
   },
   {
     id: "14",
@@ -238,7 +280,10 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1582560027611-82854c76e8e8?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0ZWNobm8lMjBtdXNpYyUyMGZlc3RpdmFsJTIwYmVybGlufGVufDF8fHx8MTc3MDk4MDk4OXww&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Deep, dark techno in Berlin's most legendary club. Cyber Beat delivers an immersive underground experience until sunrise. Limited blockchain tickets for this exclusive event.",
     availableTickets: 1500,
-    genre: "Techno"
+    genre: "Techno",
+    lat: 52.5117,
+    lon: 13.4430,
+    airportCode: "BER"
   },
   {
     id: "15",
@@ -254,6 +299,9 @@ export const concerts: Concert[] = [
     posterUrl: "https://images.unsplash.com/photo-1526478806334-5fd488fcaabc?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxibHVlcyUyMGNvbmNlcnQlMjBndWl0YXIlMjBzdGFnZXxlbnwxfHx8fDE3NzA5ODA5OTB8MA&ixlib=rb-4.1.0&q=80&w=1080&utm_source=figma&utm_medium=referral",
     description: "Experience the soul-stirring sounds of authentic Delta blues. Delta Blues Legends honor the genre's rich history with powerful performances. Blockchain preserves this musical heritage.",
     availableTickets: 1800,
-    genre: "Blues"
+    genre: "Blues",
+    lat: 41.8827,
+    lon: -87.6278,
+    airportCode: "ORD"
   }
 ];
