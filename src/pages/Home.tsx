@@ -4,7 +4,7 @@ import { Pagination } from "../components/Pagination";
 import { AuthButtons } from "../components/AuthButtons";
 import { PopBackground } from "../components/PopBackground";
 import { Ticket, Filter } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Link } from "react-router";
 import { useState, useMemo, useEffect } from "react";
 import { useCurrentAccount, useSuiClient } from "@mysten/dapp-kit";
 import { ADMIN_CAP_ID } from "../onechain/config";
@@ -255,9 +255,9 @@ export default function Home() {
         {currentConcerts.length > 0 ? (
           <>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 lg:gap-8">
-              {currentConcerts.map((concert) => {
-  return <ConcertCard key={concert.id} concert={concert} />;
-})}
+              {currentConcerts.map((concert) => (
+                <ConcertCard key={concert.id} concert={concert} />
+              ))}
             </div>
 
             {/* Pagination */}
