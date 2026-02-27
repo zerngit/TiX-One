@@ -15,6 +15,7 @@ const {
   ChannelType,
   PermissionsBitField,
 } = require('discord.js');
+const axios = require('axios');
 const { Duffel } = require('@duffel/api');
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const { concerts } = require('../../src/data/concerts');
@@ -286,8 +287,141 @@ app.post('/api/create-squad', async (req, res) => {
   }
 });
 
-const server = app.listen(PORT, () => {
-  console.log(`[api] listening on http://localhost:${PORT}`);
+// ─── SPOTIFY OAUTH & FAN SCORING ────────────────────────────────────────────
+// 50/40/10 scoring: long-term top artists (50) + track variety (40) + recent plays (10)
+// Resistant to Sybil attacks — all signals require multi-year genuine listening history.
+
+const SPOTIFY_CLIENT_ID     = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const SPOTIFY_REDIRECT_URI  = process.env.SPOTIFY_REDIRECT_URI;
+const FRONTEND_URL          = process.env.FRONTEND_URL || 'http://127.0.0.1:3000';
+
+const SPOTIFY_SCOPES = 'user-top-read user-read-recently-played';
+
+/**
+ * GET /auth-url?eventId=1&artistName=Jay+Chou
+ * Returns the Spotify OAuth URL. State encodes eventId|artistName.
+ */
+app.get('/auth-url', (req, res) => {
+  const { eventId, artistName } = req.query;
+  if (!eventId || !artistName) {
+    return res.status(400).json({ error: 'Missing eventId or artistName' });
+  }
+  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_REDIRECT_URI) {
+    return res.status(500).json({ error: 'Spotify credentials not configured' });
+  }
+  const state = `${eventId}|${encodeURIComponent(artistName)}`;
+  const url =
+    `https://accounts.spotify.com/authorize` +
+    `?client_id=${SPOTIFY_CLIENT_ID}` +
+    `&response_type=code` +
+    `&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT_URI)}` +
+    `&scope=${encodeURIComponent(SPOTIFY_SCOPES)}` +
+    `&state=${encodeURIComponent(state)}`;
+  res.json({ url });
+});
+
+/**
+ * GET /callback?code=X&state=eventId|artistName
+ * Exchanges code, scores the user, redirects to frontend with ?score=N.
+ */
+app.get('/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    console.error('[spotify] user denied access:', error);
+    return res.redirect(`${FRONTEND_URL}?spotify_error=denied`);
+  }
+  if (!code || !state) {
+    return res.status(400).send('Missing code or state');
+  }
+
+  let eventId, artistName;
+  try {
+    const decoded = decodeURIComponent(String(state));
+    const pipeIdx = decoded.indexOf('|');
+    eventId    = decoded.slice(0, pipeIdx);
+    artistName = decodeURIComponent(decoded.slice(pipeIdx + 1));
+  } catch {
+    return res.status(400).send('Malformed state parameter');
+  }
+
+  if (!eventId || !artistName) {
+    return res.status(400).send('Missing eventId or artistName in state');
+  }
+
+  try {
+    // 1. Exchange authorization code for access token.
+    const tokenRes = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      new URLSearchParams({
+        grant_type:    'authorization_code',
+        code:          String(code),
+        redirect_uri:  SPOTIFY_REDIRECT_URI,
+        client_id:     SPOTIFY_CLIENT_ID,
+        client_secret: SPOTIFY_CLIENT_SECRET,
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    const accessToken = tokenRes.data.access_token;
+
+    const spotifyGet = (url) =>
+      axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+
+    let score = 0;
+    const target = artistName.toLowerCase();
+
+    // ── 50%: Long-term top artists ────────────────────────────────────────────
+    const topArtistsRes = await spotifyGet(
+      'https://api.spotify.com/v1/me/top/artists?time_range=long_term&limit=50',
+    );
+    const topArtists = topArtistsRes.data.items || [];
+    const artistRank = topArtists.findIndex(
+      (a) => a.name.toLowerCase() === target,
+    );
+    console.log(`[spotify] top-artists (${topArtists.length}):`, topArtists.slice(0, 5).map(a => a.name));
+    console.log(`[spotify] "${target}" artist rank: ${artistRank}`);
+    if (artistRank >= 0 && artistRank < 5)        score += 50; // top 5
+    else if (artistRank >= 5 && artistRank < 20)  score += 35; // top 20
+    else if (artistRank >= 20 && artistRank < 50) score += 20; // top 50
+
+    // ── 40%: Long-term track variety ─────────────────────────────────────────
+    const topTracksRes = await spotifyGet(
+      'https://api.spotify.com/v1/me/top/tracks?time_range=long_term&limit=50',
+    );
+    const topTracks = topTracksRes.data.items || [];
+    const uniqueArtistTracks = topTracks.filter((t) =>
+      t.artists.some((a) => a.name.toLowerCase() === target),
+    ).length;
+    console.log(`[spotify] top-tracks (${topTracks.length}), matching "${target}": ${uniqueArtistTracks}`);
+    score += Math.min(uniqueArtistTracks * 8, 40);
+
+    // ── 10%: Immediate hype (recently played) ────────────────────────────────
+    const recentRes = await spotifyGet(
+      'https://api.spotify.com/v1/me/player/recently-played?limit=50',
+    );
+    const recentItems = recentRes.data.items || [];
+    const recentCount = recentItems.filter((item) =>
+      item.track.artists.some((a) => a.name.toLowerCase() === target),
+    ).length;
+    console.log(`[spotify] recently-played (${recentItems.length}), matching "${target}": ${recentCount}`);
+    score += Math.min(recentCount * 2, 10);
+
+    console.log(`[spotify] FINAL eventId=${eventId} artist="${artistName}" score=${score}/100`);
+
+    // Redirect to concert page with score — frontend will clean up the URL.
+    return res.redirect(`${FRONTEND_URL}/concert/${eventId}?score=${score}`);
+
+  } catch (err) {
+    console.error('[spotify] callback error', err?.response?.data || err.message);
+    return res.redirect(`${FRONTEND_URL}/concert/${eventId}?score=0&spotify_error=1`);
+  }
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+const server = app.listen(PORT, '127.0.0.1', () => {
+  console.log(`[api] listening on http://127.0.0.1:${PORT}`);
 });
 
 server.on('error', (err) => {

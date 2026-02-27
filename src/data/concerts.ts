@@ -21,9 +21,9 @@ export interface Concert {
 export const concerts: Concert[] = [
   {
     id: "1",
-    artist: "The Midnight Echoes",
+    artist: "Avicii",
     title: "Neon Dreams Tour",
-    date: "March 27, 2026",
+    date: "Feb 28, 2026",
     time: "8:00 PM",
     venue: "Crypto Arena",
     location: "Los Angeles, CA",
@@ -40,9 +40,9 @@ export const concerts: Concert[] = [
   },
   {
     id: "2",
-    artist: "Luna Rise",
+    artist: "Jay Chou",
     title: "Celestial Sound Experience",
-    date: "March 22, 2026",
+    date: "March 14, 2026",
     time: "7:30 PM",
     venue: "Madison Square Garden",
     location: "New York, NY",

@@ -11,6 +11,7 @@
   "dependencies": {
     "@duffel/api": "^4.21.5",
     "@google/generative-ai": "^0.24.1",
+    "axios": "^1.13.5",
     "cors": "^2.8.5",
     "discord.js": "^14.19.3",
     "dotenv": "^16.6.1",
