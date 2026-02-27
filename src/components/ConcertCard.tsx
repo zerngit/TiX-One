@@ -12,7 +12,7 @@ export function ConcertCard({ concert }: ConcertCardProps) {
     e.preventDefault(); // prevent Link navigation
 
     try {
-      const res = await fetch("http://localhost:8787/api/create-squad", {
+      const res = await fetch("http://127.0.0.1:8787/api/create-squad", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({

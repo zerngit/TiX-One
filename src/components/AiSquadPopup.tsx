@@ -23,7 +23,7 @@ export const AiSquadPopup = ({
 
   const apiBaseUrl = useMemo(() => {
     const fromEnv = (import.meta as any)?.env?.VITE_SQUAD_API_BASE_URL;
-    return typeof fromEnv === "string" && fromEnv ? fromEnv : "http://localhost:8787";
+    return typeof fromEnv === "string" && fromEnv ? fromEnv : "http://127.0.0.1:8787";
   }, []);
 
   const handleMatchMe = async () => {
@@ -67,7 +67,7 @@ export const AiSquadPopup = ({
     } catch (err) {
       console.error("Squad matching failed:", err);
       setErrorMessage(
-        "Could not reach the squad backend. Start it on http://localhost:8787 and try again.",
+        "Could not reach the squad backend. Start it on http://127.0.0.1:8787 and try again.",
       );
       setStatusMessage("");
     } finally {
