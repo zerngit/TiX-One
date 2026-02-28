@@ -17,11 +17,12 @@ import { PopBackground } from "../components/PopBackground";
 import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
 import { useBuyTicket } from "../onechain/useBuyTicket";
 import DelbotVerification from "../components/DelbotVerification";
+import { supabase } from "../lib/supabase";
 
 export default function ConcertDetail() {
   const { id } = useParams();
   const currentAccount = useCurrentAccount();
-  const { concert, loading: concertLoading } = useConcertById(id);
+  const { concert, loading: concertLoading, refetch: refetchConcert } = useConcertById(id);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authType, setAuthType] = useState<
     "onechain" | "spotify" | null
@@ -240,6 +241,8 @@ export default function ConcertDetail() {
         if (signData.error) throw new Error(signData.error);
         const digest = await buyVerifiedFanTicket(priceMist, concert.concert_object_id, signData.signature, "Fan Presale");
         if (digest) {
+          await supabase?.rpc('decrement_tickets', { row_id: concert.id, qty: quantity });
+          refetchConcert();
           const go = window.confirm("Fan ticket minted! 🎉 Go to My Tickets now?");
           if (go) window.location.assign("/my-ticket");
         }
@@ -251,8 +254,10 @@ export default function ConcertDetail() {
 
     // ── Public sale path ─────────────────────────────────────────────────
     setPendingPurchaseType(null);
-    buyTicketAtPrice(priceMist, concert.concert_object_id, "General Admission", quantity).then((digest) => {
+    buyTicketAtPrice(priceMist, concert.concert_object_id, "General Admission", quantity).then(async (digest) => {
       if (digest) {
+        await supabase?.rpc('decrement_tickets', { row_id: concert.id, qty: quantity });
+        refetchConcert();
         const shouldRedirect = window.confirm(`${quantity} ticket${quantity > 1 ? "s" : ""} minted! Go to My Tickets now?`);
         if (shouldRedirect) window.location.assign("/my-ticket");
       }

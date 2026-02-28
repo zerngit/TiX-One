@@ -12,13 +12,13 @@ export function useConcerts() {
   const [concerts, setConcerts] = useState<SupabaseConcert[]>([])
   const [loading, setLoading] = useState(true)
 
-  useEffect(() => {
+  const fetchConcerts = () => {
     if (!supabase) {
       setConcerts(staticConcerts.map(withDefaults))
       setLoading(false)
       return
     }
-
+    setLoading(true)
     supabase
       .from('concerts')
       .select('*')
@@ -32,13 +32,15 @@ export function useConcerts() {
         }
         setLoading(false)
       })
-  }, [])
+  }
 
-  return { concerts, loading }
+  useEffect(() => { fetchConcerts() }, [])
+
+  return { concerts, loading, refetch: fetchConcerts }
 }
 
 export function useConcertById(id: string | undefined) {
-  const { concerts, loading } = useConcerts()
+  const { concerts, loading, refetch } = useConcerts()
   const concert = id ? concerts.find((c) => c.id === id) ?? null : null
-  return { concert, loading }
+  return { concert, loading, refetch }
 }
