@@ -486,8 +486,8 @@ export default function ConcertDetail() {
                     )}
                   </div>
 
-                  {/* ── Quantity Selector ── */}
-                  {publicSaleOpen && (
+                  {/* ── Quantity Selector (shown during fan presale AND public sale) ── */}
+                  {(fanSaleOpen || publicSaleOpen) && (
                     <div className="flex items-center justify-between bg-purple-950/40 border-2 border-pink-500/30 rounded-xl px-4 py-3 neon-border">
                       <span className="text-pink-200 text-sm font-medium">Quantity</span>
                       <div className="flex items-center gap-3">

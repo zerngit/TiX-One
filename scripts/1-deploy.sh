@@ -16,7 +16,7 @@ echo ""
 
 # Deploy and capture JSON output
 RESULT=$(one client publish "$MOVE_DIR" \
-  --gas-budget 50000000 \
+  --gas-budget 200000000 \
   --json 2>/dev/null)
 
 # ---- Extract Package ID ----
