@@ -471,57 +471,201 @@ export default function MarketplacePage() {
           </div>
         )}
 
+        {/* ─── Spacer + Divider ─── */}
+        {(isLoadingWaitlists || waitlistQueues.length > 0) && (
+          <div style={{ marginTop: "6rem", marginBottom: "4rem" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: "1rem" }}>
+              <div style={{ flex: 1, height: "1px", background: "linear-gradient(to right, transparent, rgba(236,72,153,0.5), transparent)" }} />
+              <span style={{ fontSize: "1.1rem", color: "#ffffff", letterSpacing: "0.3em", textTransform: "uppercase", fontWeight: 800, padding: "0.4rem 1.25rem", background: "linear-gradient(135deg, #db2777, #7c3aed)", borderRadius: "999px", boxShadow: "0 0 20px rgba(219,39,119,0.6), 0 0 40px rgba(124,58,237,0.3)" }}>Waitlist</span>
+              <div style={{ flex: 1, height: "1px", background: "linear-gradient(to right, transparent, rgba(236,72,153,0.5), transparent)" }} />
+            </div>
+          </div>
+        )}
+
         {/* ─── Waitlist Queues Section ─── */}
         {(isLoadingWaitlists || waitlistQueues.length > 0) && (
-          <div className="mt-10">
-            <div className="flex items-center gap-3 mb-4">
-              <div className="p-2 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-lg shadow-lg neon-border">
-                <Clock className="w-5 h-5 text-white" />
+          <div>
+
+            {/* Section header */}
+            <div className="flex items-center gap-4 mb-8">
+              <div className="p-3 bg-gradient-to-br from-indigo-600 to-purple-700 rounded-xl shadow-lg neon-border">
+                <Clock className="w-6 h-6 text-white" />
               </div>
               <div>
-                <h2 className="text-xl text-white neon-text">Waitlist Queues</h2>
-                <p className="text-sm text-purple-300">On-chain escrow — tickets go to the next person in queue</p>
+                <div className="flex items-center gap-3">
+                  <h2 className="text-4xl font-bold text-white"
+                    style={{ textShadow: "0 0 20px #a78bfa, 0 0 40px #7c3aed, 0 0 60px #6d28d9" }}>
+                    Waitlist Queues
+                  </h2>
+                  {/* Live pulse indicator */}
+                  <span className="flex items-center gap-1.5 bg-green-900/40 border border-green-500/40 rounded-full px-2.5 py-1">
+                    <span className="w-2 h-2 rounded-full bg-green-400 animate-pulse" />
+                    <span className="text-xs font-semibold text-green-300 tracking-wide">LIVE</span>
+                  </span>
+                </div>
+                <p className="text-sm text-purple-300 mt-1">On-chain escrow — tickets go to the next person in queue</p>
               </div>
             </div>
 
             {isLoadingWaitlists ? (
-              <div className="bg-purple-900/30 backdrop-blur-md rounded-2xl p-5 border-2 border-purple-500/30 neon-border shadow-xl">
+              <div className="bg-indigo-950/60 backdrop-blur-md rounded-2xl p-5 border-2 border-indigo-500/30 neon-border shadow-xl">
                 <p className="text-purple-200">Loading waitlists…</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {waitlistQueues.map((wq) => (
-                  <div key={wq.objectId} className="bg-purple-900/30 backdrop-blur-md rounded-2xl p-5 border-2 border-indigo-500/30 neon-border shadow-xl">
-                    <div className="flex items-center gap-2 mb-3">
-                      <Users className="w-4 h-4 text-indigo-300" />
-                      <h3 className="text-white font-medium truncate">{wq.concertName}</h3>
+                {waitlistQueues.map((wq) => {
+                  const isEmpty = wq.queue.length === 0;
+                  return (
+                  <div
+                    key={wq.objectId}
+                    style={isEmpty ? {
+                      background: "rgba(10,8,30,0.55)",
+                      border: "2px dashed rgba(99,102,241,0.18)",
+                      borderRadius: "16px",
+                      padding: "20px",
+                      boxShadow: "none",
+                      opacity: 0.7,
+                      backdropFilter: "blur(12px)",
+                    } : {
+                      background: "linear-gradient(135deg, rgba(49,10,90,0.75), rgba(30,10,80,0.85))",
+                      border: "2px solid rgba(167,139,250,0.55)",
+                      borderRadius: "16px",
+                      padding: "20px",
+                      boxShadow: "0 0 18px rgba(139,92,246,0.25), inset 0 0 30px rgba(109,40,217,0.08)",
+                      backdropFilter: "blur(12px)",
+                    }}
+                  >
+                    <div className="flex items-center gap-2 mb-4">
+                      <Users style={{ width:"16px", height:"16px", color: isEmpty ? "#6366f1" : "#a78bfa", flexShrink:0 }} />
+                      <h3 style={{ color: isEmpty ? "#a5b4fc" : "#ffffff", fontWeight:600, overflow:"hidden", textOverflow:"ellipsis", whiteSpace:"nowrap" }}>{wq.concertName}</h3>
+                      <span style={isEmpty ? {
+                        marginLeft:"auto", fontSize:"0.7rem", whiteSpace:"nowrap",
+                        background:"rgba(30,27,75,0.6)", border:"1px solid rgba(99,102,241,0.2)",
+                        color:"#818cf8", borderRadius:"999px", padding:"2px 8px", flexShrink:0,
+                      } : {
+                        marginLeft:"auto", fontSize:"0.7rem", whiteSpace:"nowrap", flexShrink:0,
+                        background:"linear-gradient(135deg,rgba(16,185,129,0.25),rgba(5,150,105,0.2))",
+                        border:"1px solid rgba(52,211,153,0.5)",
+                        color:"#6ee7b7", borderRadius:"999px", padding:"2px 8px",
+                        boxShadow:"0 0 8px rgba(52,211,153,0.2)",
+                      }}>
+                        {wq.queue.length} in line
+                      </span>
                     </div>
 
-                    {wq.queue.length === 0 ? (
-                      <p className="text-sm text-purple-400 italic">Queue is empty</p>
+                    {isEmpty ? (
+                      <div style={{ borderRadius:"12px", border:"1px dashed rgba(99,102,241,0.2)", background:"rgba(15,10,40,0.3)", padding:"24px", textAlign:"center" }}>
+                        <p style={{ color:"#818cf8", fontWeight:500, marginBottom:"4px" }}>No fans waiting yet</p>
+                        <p style={{ fontSize:"0.75rem", color:"#7c3aed", marginBottom:"12px" }}>Be the first to join the line!</p>
+                        <Link
+                          to={`/concert/${wq.concertId}`}
+                          className="inline-block text-xs bg-gradient-to-r from-indigo-600 to-purple-700 text-white px-4 py-2 rounded-lg hover:from-indigo-700 hover:to-purple-800 transition-all neon-border"
+                        >
+                          Join Waitlist
+                        </Link>
+                      </div>
                     ) : (
                       <ol className="space-y-2">
                         {wq.queue.map((entry, i) => (
-                          <li key={entry.buyer + i} className="flex items-center gap-3 bg-purple-950/40 rounded-xl px-3 py-2 border border-indigo-500/20">
-                            <span className={`text-xs font-bold w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 ${
-                              i === 0 ? "bg-indigo-500 text-white" : "bg-purple-800 text-purple-200"
-                            }`}>
+                          <li
+                            key={entry.buyer + i}
+                            style={{
+                              display: "flex",
+                              alignItems: "center",
+                              gap: "10px",
+                              borderRadius: "12px",
+                              padding: "10px 12px",
+                              border: i === 0
+                                ? "1px solid rgba(234,179,8,0.5)"
+                                : "1px solid rgba(99,102,241,0.2)",
+                              background: i === 0
+                                ? "rgba(120,53,15,0.3)"
+                                : "rgba(49,46,129,0.25)",
+                              boxShadow: i === 0
+                                ? "0 0 12px rgba(234,179,8,0.12)"
+                                : "none",
+                              transition: "all 0.2s",
+                            }}
+                          >
+                            {/* Position badge */}
+                            <span style={{
+                              fontSize: "0.7rem",
+                              fontWeight: 700,
+                              width: "24px",
+                              height: "24px",
+                              borderRadius: "50%",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "center",
+                              flexShrink: 0,
+                              background: i === 0
+                                ? "linear-gradient(135deg, #facc15, #f59e0b)"
+                                : "rgba(67,56,202,0.6)",
+                              color: i === 0 ? "#000" : "#c7d2fe",
+                              boxShadow: i === 0 ? "0 0 8px rgba(234,179,8,0.5)" : "none",
+                            }}>
                               {i + 1}
                             </span>
-                            <span className="font-mono text-xs text-white truncate">{`${entry.buyer.slice(0, 10)}…${entry.buyer.slice(-6)}`}</span>
-                            <span className="ml-auto text-xs text-indigo-300 whitespace-nowrap">
+
+                            {/* Address — flex-1 so it fills and prices column stays fixed */}
+                            <span style={{
+                              fontFamily: "monospace",
+                              fontSize: "0.72rem",
+                              color: i === 0 ? "#fef9c3" : "#e0e7ff",
+                              flex: 1,
+                              minWidth: 0,
+                              overflow: "hidden",
+                              textOverflow: "ellipsis",
+                              whiteSpace: "nowrap",
+                            }}>
+                              {`${entry.buyer.slice(0, 10)}…${entry.buyer.slice(-6)}`}
+                            </span>
+
+                            {/* Price — always in same column position */}
+                            <span style={{
+                              fontSize: "0.72rem",
+                              color: i === 0 ? "#fcd34d" : "#a5b4fc",
+                              whiteSpace: "nowrap",
+                              fontWeight: i === 0 ? 600 : 400,
+                              flexShrink: 0,
+                            }}>
                               {(parseInt(entry.escrow_balance) / 1_000_000_000).toFixed(2)} OCT
                             </span>
+
+                            {/* "Next Up" badge — fixed-width slot so price column stays aligned for all rows */}
+                            <div style={{ width: "82px", flexShrink: 0, display: "flex", justifyContent: "flex-end" }}>
+                              {i === 0 && (
+                                <span style={{
+                                  display: "inline-flex",
+                                  alignItems: "center",
+                                  gap: "4px",
+                                  fontSize: "0.65rem",
+                                  fontWeight: 800,
+                                  letterSpacing: "0.04em",
+                                  textTransform: "uppercase",
+                                  background: "linear-gradient(135deg, #f59e0b, #d97706, #b45309)",
+                                  color: "#000",
+                                  padding: "3px 9px",
+                                  borderRadius: "999px",
+                                  boxShadow: "0 0 10px rgba(234,179,8,0.6), 0 0 20px rgba(234,179,8,0.25)",
+                                  animation: "nextup-pulse 2s ease-in-out infinite",
+                                }}>
+                                  <style>{`@keyframes nextup-pulse { 0%,100%{box-shadow:0 0 10px rgba(234,179,8,0.6),0 0 20px rgba(234,179,8,0.25)} 50%{box-shadow:0 0 16px rgba(234,179,8,0.9),0 0 30px rgba(234,179,8,0.45)} }`}</style>
+                                  👑 Next Up
+                                </span>
+                              )}
+                            </div>
                           </li>
                         ))}
                       </ol>
                     )}
 
-                    <p className="text-xs text-purple-400/70 mt-3 text-center">
-                      {wq.queue.length} in queue • Object: {wq.objectId.slice(0, 10)}…
+                    <p style={{ fontSize:"0.7rem", color: isEmpty ? "rgba(139,92,246,0.3)" : "rgba(167,139,250,0.4)", marginTop:"12px", textAlign:"center", fontFamily:"monospace" }}>
+                      {wq.objectId.slice(0, 10)}…
                     </p>
                   </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

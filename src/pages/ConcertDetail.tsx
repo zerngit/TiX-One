@@ -29,6 +29,7 @@ export default function ConcertDetail() {
   >(null);
   const { isSpotifyConnected, fanScores } = useAuth();
   const { buyTicketAtPrice, buyVerifiedFanTicket, joinWaitlist, isBuying, buyError, buyDigest, isConnected } = useBuyTicket();
+  const [waitlistJoined, setWaitlistJoined] = useState(false);
   const [showDelbot, setShowDelbot] = useState(false);
   const [pendingPurchaseType, setPendingPurchaseType] = useState<"fan" | "public" | null>(null);
   const [quantity, setQuantity] = useState(1);
@@ -74,6 +75,15 @@ export default function ConcertDetail() {
       window.history.replaceState({}, "", window.location.pathname);
     }
   }, [location.search]);
+
+  // ── Scroll to #buy anchor if navigated directly with the hash ─────────────
+  useEffect(() => {
+    if (location.hash === "#buy" && concert) {
+      setTimeout(() => {
+        document.getElementById("buy")?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 150);
+    }
+  }, [location.hash, concert]);
 
   // ── Sale times derived from concert date ──────────────────────────────────
   // publicSaleTime = concert date at 10:00 UTC minus 14 days ("2 weeks before show")
@@ -399,7 +409,7 @@ export default function ConcertDetail() {
             </div>
 
             {/* Action Buttons — Dual Countdown or Sold-Out Waitlist */}
-            <div className="space-y-4">
+            <div id="buy" className="space-y-4">
 
               {/* Fan score badge (shown after Spotify callback) */}
               {fanScore !== null && concert.availableTickets > 0 && (
@@ -417,45 +427,82 @@ export default function ConcertDetail() {
 
               {concert.availableTickets === 0 ? (
                 /* ─── SOLD OUT: Show Join Waitlist ─── */
-                <div className="space-y-3">
-                  <div className="rounded-xl bg-red-900/30 border-2 border-red-500/50 text-red-300 px-4 py-3 text-center text-sm font-bold">
-                    🔴 SOLD OUT
+                <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+                  <style>{`@keyframes soldout-pulse { 0%,100%{opacity:1;box-shadow:0 0 8px #ef4444,0 0 16px #ef4444} 50%{opacity:0.4;box-shadow:0 0 4px #ef4444} }`}</style>
+                  <div style={{
+                    borderRadius: "12px",
+                    background: "linear-gradient(135deg, rgba(127,0,0,0.5), rgba(185,28,28,0.35))",
+                    border: "2px solid rgba(239,68,68,0.7)",
+                    padding: "14px 20px",
+                    textAlign: "center",
+                    boxShadow: "0 0 24px rgba(239,68,68,0.35), inset 0 0 30px rgba(185,28,28,0.15)",
+                    position: "relative",
+                    overflow: "hidden",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: "10px" }}>
+                      <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#ef4444", display: "inline-block", animation: "soldout-pulse 1.5s infinite" }} />
+                      <span style={{ color: "#fca5a5", fontWeight: 800, fontSize: "1.1rem", letterSpacing: "0.2em", textTransform: "uppercase", textShadow: "0 0 12px rgba(239,68,68,0.8)" }}>
+                        Sold Out
+                      </span>
+                      <span style={{ width: "10px", height: "10px", borderRadius: "50%", background: "#ef4444", display: "inline-block", animation: "soldout-pulse 1.5s infinite" }} />
+                    </div>
+                    <p style={{ color: "rgba(252,165,165,0.6)", fontSize: "0.72rem", marginTop: "4px", letterSpacing: "0.05em" }}>
+                      Every ticket has been claimed — but don't give up yet
+                    </p>
                   </div>
 
-                  <button
-                    onClick={async () => {
-                      if (!isConnected) {
-                        setAuthType("onechain");
-                        setShowAuthModal(true);
-                        return;
-                      }
-                      if (!concert.waitlist_object_id) {
-                        alert("No waitlist has been created for this concert yet. Check back soon!");
-                        return;
-                      }
-                      let priceMist: bigint;
-                      try { priceMist = parseConcertPriceMist(concert.price || ""); }
-                      catch (e: any) { alert(e?.message || "Invalid concert price"); return; }
-                      await joinWaitlist(concert.waitlist_object_id, priceMist);
-                    }}
-                    disabled={isBuying || !concert.waitlist_object_id}
-                    title={concert.waitlist_object_id
-                      ? "Join the waitlist — your OCT is held in escrow until a ticket becomes available"
-                      : "Waitlist coming soon"}
-                    className="w-full py-4 px-6 rounded-xl flex items-center justify-center gap-3 text-base font-semibold transition-all duration-200 shadow-lg neon-border bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
-                  >
-                    <Clock className="w-5 h-5" />
-                    {isBuying
-                      ? "Processing…"
-                      : concert.waitlist_object_id
-                      ? "Join Waitlist (Deposit OCT)"
-                      : "Waitlist Coming Soon"}
-                  </button>
+                  {waitlistJoined && !buyError ? (
+                    /* ─── SUCCESS STATE ─── */
+                    <div style={{ background: "linear-gradient(135deg, rgba(20,83,45,0.7), rgba(6,78,59,0.7))", border: "2px solid rgba(74,222,128,0.6)", borderRadius: "12px", padding: "20px 16px", textAlign: "center", boxShadow: "0 0 24px rgba(74,222,128,0.25)" }}>
+                      <div style={{ fontSize: "2rem", marginBottom: "8px" }}>🎉</div>
+                      <p style={{ color: "#86efac", fontWeight: 700, fontSize: "1.1rem", marginBottom: "6px" }}>You're in the queue!</p>
+                      <p style={{ color: "#bbf7d0", fontSize: "0.85rem", lineHeight: 1.5 }}>
+                        Your OCT is safely held in on-chain escrow.<br />
+                        The moment a ticket becomes available, it's yours — automatically.
+                      </p>
+                      <p style={{ color: "rgba(134,239,172,0.6)", fontSize: "0.72rem", marginTop: "10px", fontFamily: "monospace", wordBreak: "break-all" }}>
+                        Tx: {buyDigest}
+                      </p>
+                    </div>
+                  ) : (
+                    <>
+                      <button
+                        onClick={async () => {
+                          if (!isConnected) {
+                            setAuthType("onechain");
+                            setShowAuthModal(true);
+                            return;
+                          }
+                          if (!concert.waitlist_object_id) {
+                            alert("No waitlist has been created for this concert yet. Check back soon!");
+                            return;
+                          }
+                          let priceMist: bigint;
+                          try { priceMist = parseConcertPriceMist(concert.price || ""); }
+                          catch (e: any) { alert(e?.message || "Invalid concert price"); return; }
+                          await joinWaitlist(concert.waitlist_object_id, priceMist);
+                          setWaitlistJoined(true);
+                        }}
+                        disabled={isBuying || !concert.waitlist_object_id}
+                        title={concert.waitlist_object_id
+                          ? "Join the waitlist — your OCT is held in escrow until a ticket becomes available"
+                          : "Waitlist coming soon"}
+                        className="w-full py-4 px-6 rounded-xl flex items-center justify-center gap-3 text-base font-semibold transition-all duration-200 shadow-lg neon-border bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                      >
+                        <Clock className="w-5 h-5" />
+                        {isBuying
+                          ? "Processing…"
+                          : concert.waitlist_object_id
+                          ? "Join Waitlist (Deposit OCT)"
+                          : "Waitlist Coming Soon"}
+                      </button>
 
-                  {concert.waitlist_object_id && (
-                    <p className="text-xs text-purple-300/70 text-center">
-                      Your OCT deposit is held in on-chain escrow. You will receive a ticket the moment a holder returns one.
-                    </p>
+                      {concert.waitlist_object_id && (
+                        <p className="text-xs text-purple-300/70 text-center">
+                          Your OCT deposit is held in on-chain escrow. You will receive a ticket the moment a holder returns one.
+                        </p>
+                      )}
+                    </>
                   )}
                 </div>
               ) : (
@@ -531,12 +578,12 @@ export default function ConcertDetail() {
                   </div>
                 </>
               )}
-              {(buyError || buyDigest) && (
+              {(buyError || (buyDigest && !waitlistJoined)) && (
                 <div className="bg-purple-950/30 backdrop-blur-sm rounded-xl p-4 border-2 border-pink-500/30 neon-border">
                   {buyError && (
                     <p className="text-sm text-red-300">{buyError}</p>
                   )}
-                  {buyDigest && (
+                  {buyDigest && !waitlistJoined && (
                     <p className="text-sm text-green-300">
                       Ticket minted! Tx: <span className="font-mono">{buyDigest}</span>
                     </p>
@@ -577,13 +624,62 @@ export default function ConcertDetail() {
                 Connect your OneChain wallet to purchase tickets or join the queue
               </p>
             </div>
-            <div className="space-y-3">
-              <ConnectButton className="w-full bg-gradient-to-r from-pink-600 to-purple-600 text-white py-3 px-6 rounded-xl hover:from-pink-700 hover:to-purple-700 transition-all duration-200 text-base shadow-lg neon-border" />
+            <div style={{ display: "flex", flexDirection: "column", gap: "12px" }}>
+              <div id="auth-modal-connect-btn">
+                <style>{`
+                  #auth-modal-connect-btn button {
+                    color: #ffffff !important;
+                    width: 100%;
+                    background: linear-gradient(to right, #db2777, #9333ea) !important;
+                    border: 2px solid rgba(219,39,119,0.5) !important;
+                    padding: 12px 24px !important;
+                    border-radius: 12px !important;
+                    font-size: 1rem !important;
+                    font-weight: 600 !important;
+                    cursor: pointer !important;
+                    box-shadow: 0 0 16px rgba(219,39,119,0.4) !important;
+                    transition: box-shadow 0.2s, border-color 0.2s !important;
+                  }
+                  #auth-modal-connect-btn button:hover {
+                    box-shadow: 0 0 28px rgba(219,39,119,0.75), 0 0 8px rgba(147,51,234,0.5) !important;
+                    border-color: rgba(249,168,212,0.9) !important;
+                  }
+                `}</style>
+                <ConnectButton />
+              </div>
               <button
                 onClick={closeModal}
-                className="w-full bg-purple-900/50 border-2 border-pink-500/50 text-white py-3 px-6 rounded-xl hover:bg-purple-800/60 hover:border-pink-400 transition-all duration-200 text-base neon-border"
+                style={{
+                  width: "100%",
+                  background: "rgba(20,0,0,0.6)",
+                  border: "1px solid rgba(127,29,29,0.5)",
+                  color: "rgba(252,165,165,0.45)",
+                  padding: "12px 24px",
+                  borderRadius: "12px",
+                  fontSize: "0.9rem",
+                  fontWeight: 400,
+                  cursor: "pointer",
+                  letterSpacing: "0.08em",
+                  transition: "all 0.2s",
+                  textDecoration: "line-through",
+                  textDecorationColor: "rgba(239,68,68,0.4)",
+                }}
+                onMouseEnter={e => {
+                  const el = e.currentTarget;
+                  el.style.background = "rgba(40,0,0,0.75)";
+                  el.style.borderColor = "rgba(185,28,28,0.8)";
+                  el.style.color = "rgba(252,165,165,0.65)";
+                  el.style.boxShadow = "inset 0 0 20px rgba(127,29,29,0.3)";
+                }}
+                onMouseLeave={e => {
+                  const el = e.currentTarget;
+                  el.style.background = "rgba(20,0,0,0.6)";
+                  el.style.borderColor = "rgba(127,29,29,0.5)";
+                  el.style.color = "rgba(252,165,165,0.45)";
+                  el.style.boxShadow = "none";
+                }}
               >
-                Cancel
+                ⚠ Cancel
               </button>
             </div>
           </div>
