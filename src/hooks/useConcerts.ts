@@ -22,7 +22,7 @@ export function useConcerts() {
       .from('concerts')
       .select('*')
       .order('date', { ascending: true })
-      .then(({ data, error }) => {
+      .then(({ data, error }: { data: any[] | null; error: any }) => {
         if (error || !data || data.length === 0) {
           console.warn('[useConcerts] Supabase fetch failed, using static data:', error?.message)
           setConcerts(staticConcerts.map(withDefaults))

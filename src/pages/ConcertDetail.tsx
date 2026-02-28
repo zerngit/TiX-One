@@ -14,27 +14,30 @@ import {
 import { useEffect, useState, useCallback } from "react";
 import { useAuth } from "../context/AuthContext";
 import { PopBackground } from "../components/PopBackground";
-import { ConnectButton } from "@mysten/dapp-kit";
+import { ConnectButton, useCurrentAccount } from "@mysten/dapp-kit";
 import { useBuyTicket } from "../onechain/useBuyTicket";
 import DelbotVerification from "../components/DelbotVerification";
 
 export default function ConcertDetail() {
   const { id } = useParams();
+  const currentAccount = useCurrentAccount();
   const { concert, loading: concertLoading } = useConcertById(id);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [authType, setAuthType] = useState<
     "onechain" | "spotify" | null
   >(null);
   const { isSpotifyConnected, fanScores } = useAuth();
-  const { buyTicketAtPrice, isBuying, buyError, buyDigest, isConnected } = useBuyTicket();
+  const { buyTicketAtPrice, buyVerifiedFanTicket, isBuying, buyError, buyDigest, isConnected } = useBuyTicket();
   const [showDelbot, setShowDelbot] = useState(false);
   const [pendingPurchaseType, setPendingPurchaseType] = useState<"fan" | "public" | null>(null);
+  const [quantity, setQuantity] = useState(1);
   const navigate = useNavigate();
   const location = useLocation();
 
   // ── Fan verification state ─────────────────────────────────────────────────
   const [isFanVerified, setIsFanVerified] = useState(false);
   const [fanScore, setFanScore] = useState<number | null>(null);
+  const [fanToken, setFanToken] = useState<string | null>(null); // HMAC token issued by backend after Spotify check
   const [spotifyLoading, setSpotifyLoading] = useState(false);
 
   // ── Live clock (ticks every second) ───────────────────────────────────────
@@ -54,14 +57,18 @@ export default function ConcertDetail() {
     }
   }, [concert, fanScores]);
 
-  // ── Read ?score= from URL after per-concert Spotify callback, clean URL ───
+  // ── Read ?score= and ?fanToken= from URL after per-concert Spotify callback, clean URL ───
   useEffect(() => {
     const params = new URLSearchParams(location.search);
-    const scoreStr = params.get("score");
+    const scoreStr  = params.get("score");
+    const tokenStr  = params.get("fanToken");
     if (scoreStr !== null) {
       const score = parseInt(scoreStr, 10);
       setFanScore(score);
       if (score >= 60) setIsFanVerified(true);
+    }
+    if (tokenStr) setFanToken(tokenStr);
+    if (scoreStr !== null || tokenStr) {
       // Strip query params so URL looks clean
       window.history.replaceState({}, "", window.location.pathname);
     }
@@ -200,28 +207,53 @@ export default function ConcertDetail() {
     handleBuyTicket("public");
   };
 
-  const proceedWithPurchase = () => {
+  const proceedWithPurchase = async () => {
     setShowDelbot(false);
-    setPendingPurchaseType(null);
 
     if (!concert.concert_object_id) {
       alert("This concert is not yet linked to the blockchain. Please contact the organizer.");
+      setPendingPurchaseType(null);
       return;
     }
 
-    // Parse price from the OCT string label (e.g. "0.06 OCT")
     let priceMist: bigint;
     try {
       priceMist = parseConcertPriceMist(concert.price || "");
       if (priceMist <= 0n) throw new Error("Concert price must be greater than 0.");
     } catch (e: any) {
       alert(e?.message || "Invalid concert price");
+      setPendingPurchaseType(null);
       return;
     }
 
-    buyTicketAtPrice(priceMist, concert.concert_object_id, "General Admission").then((digest) => {
+    // ── Verified Fan path — get backend Ed25519 signature first ───────────
+    if (pendingPurchaseType === "fan" && isFanVerified && fanToken) {
+      setPendingPurchaseType(null);
+      const backendUrl = typeof import.meta.env.VITE_BACKEND_URL === "string" && import.meta.env.VITE_BACKEND_URL
+        ? import.meta.env.VITE_BACKEND_URL
+        : "http://127.0.0.1:8787";
+      try {
+        const signRes = await fetch(
+          `${backendUrl}/sign-fan-purchase?wallet=${encodeURIComponent(currentAccount!.address)}&concertObjectId=${encodeURIComponent(concert.concert_object_id)}&fanToken=${encodeURIComponent(fanToken)}`
+        );
+        const signData = await signRes.json();
+        if (signData.error) throw new Error(signData.error);
+        const digest = await buyVerifiedFanTicket(priceMist, concert.concert_object_id, signData.signature, "Fan Presale");
+        if (digest) {
+          const go = window.confirm("Fan ticket minted! 🎉 Go to My Tickets now?");
+          if (go) window.location.assign("/my-ticket");
+        }
+      } catch (err: any) {
+        alert(err.message || "Could not get fan verification signature.");
+      }
+      return;
+    }
+
+    // ── Public sale path ─────────────────────────────────────────────────
+    setPendingPurchaseType(null);
+    buyTicketAtPrice(priceMist, concert.concert_object_id, "General Admission", quantity).then((digest) => {
       if (digest) {
-        const shouldRedirect = window.confirm("Ticket minted! Go to My Tickets now?");
+        const shouldRedirect = window.confirm(`${quantity} ticket${quantity > 1 ? "s" : ""} minted! Go to My Tickets now?`);
         if (shouldRedirect) window.location.assign("/my-ticket");
       }
     });
@@ -407,6 +439,24 @@ export default function ConcertDetail() {
                   </p>
                 )}
               </div>
+
+              {/* ── Quantity Selector (public sale only) ── */}
+              {publicSaleOpen && (
+                <div className="flex items-center justify-between bg-purple-950/40 border-2 border-pink-500/30 rounded-xl px-4 py-3 neon-border">
+                  <span className="text-pink-200 text-sm font-medium">Quantity</span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => setQuantity(q => Math.max(1, q - 1))}
+                      className="w-8 h-8 rounded-full bg-purple-800 hover:bg-purple-700 text-white text-lg font-bold flex items-center justify-center transition-colors"
+                    >−</button>
+                    <span className="text-white font-bold w-6 text-center">{quantity}</span>
+                    <button
+                      onClick={() => setQuantity(q => Math.min(10, q + 1))}
+                      className="w-8 h-8 rounded-full bg-purple-800 hover:bg-purple-700 text-white text-lg font-bold flex items-center justify-center transition-colors"
+                    >+</button>
+                  </div>
+                </div>
+              )}
 
               {/* ── Button 2: Public Sale ── */}
               <div>

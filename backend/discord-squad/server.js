@@ -9,6 +9,7 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
+const { createHmac, createPrivateKey, sign: cryptoSign } = require('crypto');
 const {
   Client,
   GatewayIntentBits,
@@ -298,6 +299,76 @@ const FRONTEND_URL          = process.env.FRONTEND_URL || 'http://127.0.0.1:3000
 
 const SPOTIFY_SCOPES = 'user-top-read user-read-recently-played';
 
+// ── Ed25519 fan-purchase signing ─────────────────────────────────────────────
+const BACKEND_ED25519_PRIVATE_KEY = process.env.BACKEND_ED25519_PRIVATE_KEY;
+const BACKEND_ED25519_PUBLIC_KEY  = process.env.BACKEND_ED25519_PUBLIC_KEY;
+const FAN_TOKEN_HMAC_SECRET = process.env.FAN_TOKEN_HMAC_SECRET || 'dev-hmac-secret-change-me';
+
+if (!BACKEND_ED25519_PRIVATE_KEY || !BACKEND_ED25519_PUBLIC_KEY) {
+  console.warn('[crypto] BACKEND_ED25519_PRIVATE_KEY / PUBLIC_KEY not set — run scripts/3-init-verifier.sh');
+}
+if (FAN_TOKEN_HMAC_SECRET === 'dev-hmac-secret-change-me') {
+  console.warn('[crypto] FAN_TOKEN_HMAC_SECRET is using default — run scripts/3-init-verifier.sh');
+}
+
+/** Load the Ed25519 private key from raw seed hex stored in .env */
+function getEd25519PrivateKey() {
+  if (!BACKEND_ED25519_PRIVATE_KEY || !BACKEND_ED25519_PUBLIC_KEY) return null;
+  return createPrivateKey({
+    key: {
+      kty: 'OKP',
+      crv: 'Ed25519',
+      d: Buffer.from(BACKEND_ED25519_PRIVATE_KEY, 'hex').toString('base64url'),
+      x: Buffer.from(BACKEND_ED25519_PUBLIC_KEY,  'hex').toString('base64url'),
+    },
+    format: 'jwk',
+  });
+}
+
+/**
+ * Sign a fan-purchase message: wallet_bytes (32) || concert_object_id_bytes (32)
+ * Returns a 64-byte Buffer (Ed25519 signature).
+ */
+function signFanPurchase(walletAddress, concertObjectId) {
+  const key = getEd25519PrivateKey();
+  if (!key) throw new Error('Ed25519 signing key not configured. Run scripts/3-init-verifier.sh.');
+  const walletBytes  = Buffer.from(walletAddress.replace(/^0x/, ''), 'hex');
+  const concertBytes = Buffer.from(concertObjectId.replace(/^0x/, ''), 'hex');
+  const msg = Buffer.concat([walletBytes, concertBytes]);
+  return cryptoSign(null, msg, key); // 64-byte Ed25519 signature
+}
+
+/**
+ * Create a short-lived HMAC fan-approval token.
+ * Payload: "eventId:score:expiresAtMs"
+ * Token:   base64url(payload + "." + hmac(payload))
+ */
+function createFanToken(eventId, score) {
+  const exp     = Date.now() + 10 * 60 * 1000; // 10 minutes
+  const payload = `${eventId}:${score}:${exp}`;
+  const hmac    = createHmac('sha256', FAN_TOKEN_HMAC_SECRET).update(payload).digest('hex');
+  return Buffer.from(`${payload}.${hmac}`).toString('base64url');
+}
+
+/**
+ * Verify a fan-approval token. Returns { eventId, score } or null if invalid/expired.
+ */
+function verifyFanToken(token) {
+  try {
+    const decoded        = Buffer.from(String(token), 'base64url').toString('utf8');
+    const lastDot        = decoded.lastIndexOf('.');
+    const payload        = decoded.slice(0, lastDot);
+    const receivedHmac   = decoded.slice(lastDot + 1);
+    const expectedHmac   = createHmac('sha256', FAN_TOKEN_HMAC_SECRET).update(payload).digest('hex');
+    if (receivedHmac !== expectedHmac) return null;
+    const [eventId, scoreStr, expStr] = payload.split(':');
+    if (Date.now() > parseInt(expStr, 10)) return null;
+    return { eventId, score: parseInt(scoreStr, 10) };
+  } catch {
+    return null;
+  }
+}
+
 // ── Dynamic concert list — fetched from Supabase, cached for 5 minutes ───────
 const SUPABASE_URL      = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
@@ -376,6 +447,36 @@ app.get('/auth-url-global', (req, res) => {
     `&scope=${encodeURIComponent(SPOTIFY_SCOPES)}` +
     `&state=global`;
   res.json({ url });
+});
+
+/**
+ * GET /sign-fan-purchase?wallet=0x...&concertObjectId=0x...&fanToken=...
+ * Verifies the HMAC fan token, then returns an Ed25519 signature
+ * over (wallet_bytes || concert_object_id_bytes) for use in buy_verified_fan_ticket.
+ */
+app.get('/sign-fan-purchase', (req, res) => {
+  const { wallet, concertObjectId, fanToken } = req.query;
+
+  if (!wallet || !concertObjectId || !fanToken) {
+    return res.status(400).json({ error: 'Missing wallet, concertObjectId, or fanToken' });
+  }
+
+  const tokenData = verifyFanToken(fanToken);
+  if (!tokenData) {
+    return res.status(403).json({ error: 'Fan token is invalid or expired. Please re-verify via Spotify.' });
+  }
+  if (tokenData.score < 60) {
+    return res.status(403).json({ error: `Fan score ${tokenData.score}/100 is below the 60-point threshold.` });
+  }
+
+  try {
+    const signature = signFanPurchase(String(wallet), String(concertObjectId));
+    console.log(`[sign-fan-purchase] wallet=${wallet} concert=${concertObjectId} score=${tokenData.score} → signed ✅`);
+    return res.json({ signature: signature.toString('hex') });
+  } catch (err) {
+    console.error('[sign-fan-purchase] error:', err.message);
+    return res.status(500).json({ error: err.message });
+  }
 });
 
 /**
@@ -473,7 +574,8 @@ app.get('/callback', async (req, res) => {
     } else {
       const score = scoreFor(artistName);
       console.log(`[spotify] FINAL eventId=${eventId} artist="${artistName}" score=${score}/100`);
-      return res.redirect(`${FRONTEND_URL}/concert/${eventId}?score=${score}`);
+      const fanTokenParam = score >= 60 ? `&fanToken=${encodeURIComponent(createFanToken(eventId, score))}` : '';
+      return res.redirect(`${FRONTEND_URL}/concert/${eventId}?score=${score}${fanTokenParam}`);
     }
 
   } catch (err) {

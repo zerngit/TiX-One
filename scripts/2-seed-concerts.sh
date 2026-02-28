@@ -99,13 +99,26 @@ for c in changes:
   echo "✅  $OBJECT_ID"
 
   # Append UPDATE statement to SQL file
-  # Uses your exact column names: "availableTickets" (quoted, camelCase), price_mist
-  cat >> "$SQL_FILE" <<EOF
+  # Uses your exact column names: "availableTickets" (quoted, camelCase), price (TEXT e.g. "0.05 OCT")
+  # Derive OCT price string from PRICE_MIST (divide by 1_000_000_000)
+  PRICE_OCT=$(python3 -c "
+mist = $PRICE_MIST
+oct_val = mist / 1_000_000_000
+# Format: remove trailing zeros but keep at least 2 decimal places
+s = f'{oct_val:.9f}'.rstrip('0')
+if '.' in s:
+    parts = s.split('.')
+    dec = parts[1] if len(parts[1]) >= 2 else parts[1].ljust(2, '0')
+    s = parts[0] + '.' + dec
+print(s + ' OCT')
+")
+  cat >> "\$SQL_FILE" <<EOF
 UPDATE concerts
-SET concert_object_id   = '$OBJECT_ID',
-    "availableTickets"  = $AVAILABLE_TICKETS,
-    price_mist          = $PRICE_MIST
-WHERE id = '$CONCERT_ID';   -- $EVENT_NAME
+SET concert_object_id   = '\$OBJECT_ID',
+    artist              = '\$ARTIST',
+    \"availableTickets\"  = \$AVAILABLE_TICKETS,
+    price               = '\$PRICE_OCT'
+WHERE id = '\$CONCERT_ID';   -- \$EVENT_NAME
 
 EOF
 done
