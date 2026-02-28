@@ -9,7 +9,12 @@ const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
-const { createHmac, createPrivateKey, sign: cryptoSign } = require('crypto');
+const connectDB = require('./db');
+const Squad = require('./models/Squad');
+const Expense = require('./models/Expense');
+const Attendee = require('./models/Attendee');
+const MatchedSquad = require('./models/MatchedSquad');
+const SquadMessage = require('./models/SquadMessage');
 const {
   Client,
   GatewayIntentBits,
@@ -145,6 +150,19 @@ async function getGuildOrThrow() {
 }
 
 async function findExistingSquadChannel(guild, concertId) {
+  // Try to find in database first
+  const squad = await Squad.findOne({ concertId });
+  if (squad) {
+    try {
+      const channel = await guild.channels.fetch(squad.channelId);
+      if (channel) return channel;
+    } catch (e) {
+      console.log(`[db] Saved channel ${squad.channelId} not found in Discord, deleting record`);
+      await Squad.deleteOne({ _id: squad._id });
+    }
+  }
+
+  // Fallback to searching guild channels by topic (legacy/sync)
   const channels = await guild.channels.fetch();
   const needle = `ConcertID: ${concertId}`;
 
@@ -269,6 +287,15 @@ app.post('/api/create-squad', async (req, res) => {
       reason: 'TiX-One squad invite',
     });
 
+    // Save to MongoDB
+    await Squad.create({
+      concertId,
+      concertName,
+      channelId: channel.id,
+      channelName: channel.name,
+      inviteUrl: invite.url
+    });
+
     return res.json({ inviteUrl: invite.url, channelId: channel.id });
   } catch (err) {
     console.error('[api] /api/create-squad failed', err);
@@ -288,309 +315,719 @@ app.post('/api/create-squad', async (req, res) => {
   }
 });
 
-// ─── SPOTIFY OAUTH & FAN SCORING ────────────────────────────────────────────
-// 50/40/10 scoring: long-term top artists (50) + track variety (40) + recent plays (10)
-// Resistant to Sybil attacks — all signals require multi-year genuine listening history.
-
-const SPOTIFY_CLIENT_ID     = process.env.SPOTIFY_CLIENT_ID;
-const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
-const SPOTIFY_REDIRECT_URI  = process.env.SPOTIFY_REDIRECT_URI;
-const FRONTEND_URL          = process.env.FRONTEND_URL || 'http://127.0.0.1:3000';
-
-const SPOTIFY_SCOPES = 'user-top-read user-read-recently-played';
-
-// ── Ed25519 fan-purchase signing ─────────────────────────────────────────────
-const BACKEND_ED25519_PRIVATE_KEY = process.env.BACKEND_ED25519_PRIVATE_KEY;
-const BACKEND_ED25519_PUBLIC_KEY  = process.env.BACKEND_ED25519_PUBLIC_KEY;
-const FAN_TOKEN_HMAC_SECRET = process.env.FAN_TOKEN_HMAC_SECRET || 'dev-hmac-secret-change-me';
-
-if (!BACKEND_ED25519_PRIVATE_KEY || !BACKEND_ED25519_PUBLIC_KEY) {
-  console.warn('[crypto] BACKEND_ED25519_PRIVATE_KEY / PUBLIC_KEY not set — run scripts/3-init-verifier.sh');
-}
-if (FAN_TOKEN_HMAC_SECRET === 'dev-hmac-secret-change-me') {
-  console.warn('[crypto] FAN_TOKEN_HMAC_SECRET is using default — run scripts/3-init-verifier.sh');
-}
-
-/** Load the Ed25519 private key from raw seed hex stored in .env */
-function getEd25519PrivateKey() {
-  if (!BACKEND_ED25519_PRIVATE_KEY || !BACKEND_ED25519_PUBLIC_KEY) return null;
-  return createPrivateKey({
-    key: {
-      kty: 'OKP',
-      crv: 'Ed25519',
-      d: Buffer.from(BACKEND_ED25519_PRIVATE_KEY, 'hex').toString('base64url'),
-      x: Buffer.from(BACKEND_ED25519_PUBLIC_KEY,  'hex').toString('base64url'),
-    },
-    format: 'jwk',
-  });
-}
+// ─── SQUAD MATCHING (AI Matchmaking) ──────────────────────────────────────────
 
 /**
- * Sign a fan-purchase message: wallet_bytes (32) || concert_object_id_bytes (32)
- * Returns a 64-byte Buffer (Ed25519 signature).
+ * POST /api/squad-matching/join
+ * Body: { walletAddress, concertId, bio }
+ * Registers an attendee for AI-based squad matching.
  */
-function signFanPurchase(walletAddress, concertObjectId) {
-  const key = getEd25519PrivateKey();
-  if (!key) throw new Error('Ed25519 signing key not configured. Run scripts/3-init-verifier.sh.');
-  const walletBytes  = Buffer.from(walletAddress.replace(/^0x/, ''), 'hex');
-  const concertBytes = Buffer.from(concertObjectId.replace(/^0x/, ''), 'hex');
-  const msg = Buffer.concat([walletBytes, concertBytes]);
-  return cryptoSign(null, msg, key); // 64-byte Ed25519 signature
-}
-
-/**
- * Create a short-lived HMAC fan-approval token.
- * Payload: "eventId:score:expiresAtMs"
- * Token:   base64url(payload + "." + hmac(payload))
- */
-function createFanToken(eventId, score) {
-  const exp     = Date.now() + 10 * 60 * 1000; // 10 minutes
-  const payload = `${eventId}:${score}:${exp}`;
-  const hmac    = createHmac('sha256', FAN_TOKEN_HMAC_SECRET).update(payload).digest('hex');
-  return Buffer.from(`${payload}.${hmac}`).toString('base64url');
-}
-
-/**
- * Verify a fan-approval token. Returns { eventId, score } or null if invalid/expired.
- */
-function verifyFanToken(token) {
+app.post('/api/squad-matching/join', async (req, res) => {
   try {
-    const decoded        = Buffer.from(String(token), 'base64url').toString('utf8');
-    const lastDot        = decoded.lastIndexOf('.');
-    const payload        = decoded.slice(0, lastDot);
-    const receivedHmac   = decoded.slice(lastDot + 1);
-    const expectedHmac   = createHmac('sha256', FAN_TOKEN_HMAC_SECRET).update(payload).digest('hex');
-    if (receivedHmac !== expectedHmac) return null;
-    const [eventId, scoreStr, expStr] = payload.split(':');
-    if (Date.now() > parseInt(expStr, 10)) return null;
-    return { eventId, score: parseInt(scoreStr, 10) };
-  } catch {
-    return null;
-  }
-}
+    const { walletAddress, concertId, bio } = req.body || {};
 
-// ── Dynamic concert list — fetched from Supabase, cached for 5 minutes ───────
-const SUPABASE_URL      = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-
-// Static fallback (used when Supabase is unreachable)
-const CONCERTS_FALLBACK = concerts.map((c) => ({ id: c.id, artist: c.artist }));
-
-let _concertsCache     = null;
-let _concertsCacheTime = 0;
-const CACHE_TTL_MS     = 5 * 60 * 1000; // 5 minutes
-
-async function getConcerts() {
-  if (_concertsCache && Date.now() - _concertsCacheTime < CACHE_TTL_MS) {
-    return _concertsCache;
-  }
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.warn('[concerts] SUPABASE_URL/SUPABASE_ANON_KEY not set — using static fallback');
-    return CONCERTS_FALLBACK;
-  }
-  try {
-    const res = await axios.get(`${SUPABASE_URL}/rest/v1/concerts`, {
-      params: { select: 'id,artist', order: 'id.asc' },
-      headers: {
-        apikey:        SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-    });
-    const data = res.data;
-    if (!Array.isArray(data) || data.length === 0) throw new Error('empty response');
-    _concertsCache     = data.map((c) => ({ id: String(c.id), artist: c.artist }));
-    _concertsCacheTime = Date.now();
-    console.log(`[concerts] loaded ${_concertsCache.length} concerts from Supabase`);
-    return _concertsCache;
-  } catch (err) {
-    console.warn('[concerts] Supabase fetch failed, using static fallback:', err?.message);
-    return CONCERTS_FALLBACK;
-  }
-}
-
-/**
- * GET /auth-url?eventId=1&artistName=Jay+Chou
- * Returns the Spotify OAuth URL. State encodes eventId|artistName.
- */
-app.get('/auth-url', (req, res) => {
-  const { eventId, artistName } = req.query;
-  if (!eventId || !artistName) {
-    return res.status(400).json({ error: 'Missing eventId or artistName' });
-  }
-  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_REDIRECT_URI) {
-    return res.status(500).json({ error: 'Spotify credentials not configured' });
-  }
-  const state = `${eventId}|${encodeURIComponent(artistName)}`;
-  const url =
-    `https://accounts.spotify.com/authorize` +
-    `?client_id=${SPOTIFY_CLIENT_ID}` +
-    `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT_URI)}` +
-    `&scope=${encodeURIComponent(SPOTIFY_SCOPES)}` +
-    `&state=${encodeURIComponent(state)}`;
-  res.json({ url });
-});
-
-/**
- * GET /auth-url-global
- * Returns Spotify OAuth URL for global fan-check (all concerts at once).
- */
-app.get('/auth-url-global', (req, res) => {
-  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_REDIRECT_URI) {
-    return res.status(500).json({ error: 'Spotify credentials not configured' });
-  }
-  const url =
-    `https://accounts.spotify.com/authorize` +
-    `?client_id=${SPOTIFY_CLIENT_ID}` +
-    `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT_URI)}` +
-    `&scope=${encodeURIComponent(SPOTIFY_SCOPES)}` +
-    `&state=global`;
-  res.json({ url });
-});
-
-/**
- * GET /sign-fan-purchase?wallet=0x...&concertObjectId=0x...&fanToken=...
- * Verifies the HMAC fan token, then returns an Ed25519 signature
- * over (wallet_bytes || concert_object_id_bytes) for use in buy_verified_fan_ticket.
- */
-app.get('/sign-fan-purchase', (req, res) => {
-  const { wallet, concertObjectId, fanToken } = req.query;
-
-  if (!wallet || !concertObjectId || !fanToken) {
-    return res.status(400).json({ error: 'Missing wallet, concertObjectId, or fanToken' });
-  }
-
-  const tokenData = verifyFanToken(fanToken);
-  if (!tokenData) {
-    return res.status(403).json({ error: 'Fan token is invalid or expired. Please re-verify via Spotify.' });
-  }
-  if (tokenData.score < 60) {
-    return res.status(403).json({ error: `Fan score ${tokenData.score}/100 is below the 60-point threshold.` });
-  }
-
-  try {
-    const signature = signFanPurchase(String(wallet), String(concertObjectId));
-    console.log(`[sign-fan-purchase] wallet=${wallet} concert=${concertObjectId} score=${tokenData.score} → signed ✅`);
-    return res.json({ signature: signature.toString('hex') });
-  } catch (err) {
-    console.error('[sign-fan-purchase] error:', err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
-
-/**
- * GET /callback?code=X&state=eventId|artistName
- * Exchanges code, scores the user, redirects to frontend with ?score=N.
- */
-app.get('/callback', async (req, res) => {
-  const { code, state, error } = req.query;
-
-  if (error) {
-    console.error('[spotify] user denied access:', error);
-    return res.redirect(`${FRONTEND_URL}?spotify_error=denied`);
-  }
-  if (!code || !state) {
-    return res.status(400).send('Missing code or state');
-  }
-
-  const decoded  = decodeURIComponent(String(state));
-  const isGlobal = decoded === 'global';
-
-  let eventId, artistName;
-  if (!isGlobal) {
-    try {
-      const pipeIdx = decoded.indexOf('|');
-      eventId    = decoded.slice(0, pipeIdx);
-      artistName = decodeURIComponent(decoded.slice(pipeIdx + 1));
-    } catch {
-      return res.status(400).send('Malformed state parameter');
+    if (!walletAddress || !concertId || !bio) {
+      return res.status(400).json({ error: 'Missing required fields: walletAddress, concertId, bio' });
     }
-    if (!eventId || !artistName) {
-      return res.status(400).send('Missing eventId or artistName in state');
+    if (bio.length > 200) {
+      return res.status(400).json({ error: 'Bio must be 200 characters or fewer' });
     }
-  }
 
-  try {
-    // Exchange authorization code for access token.
-    const tokenRes = await axios.post(
-      'https://accounts.spotify.com/api/token',
-      new URLSearchParams({
-        grant_type:    'authorization_code',
-        code:          String(code),
-        redirect_uri:  SPOTIFY_REDIRECT_URI,
-        client_id:     SPOTIFY_CLIENT_ID,
-        client_secret: SPOTIFY_CLIENT_SECRET,
-      }),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    // Upsert — let a user update their bio if they re-join
+    const attendee = await Attendee.findOneAndUpdate(
+      { walletAddress, concertId },
+      { walletAddress, concertId, bio, isMatched: false, squadId: null },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
     );
-    const accessToken = tokenRes.data.access_token;
-    const spotifyGet  = (url) =>
-      axios.get(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        timeout: 10_000, // 10 s — don't hang forever
+
+    return res.json({ ok: true, attendee });
+  } catch (err) {
+    console.error('[api] /api/squad-matching/join failed', err);
+    return res.status(500).json({ error: 'Failed to join squad matching' });
+  }
+});
+
+/**
+ * POST /api/squad-matching/run
+ * Body: { concertId }
+ * Triggers Gemini-based matchmaking for all unmatched attendees of a concert.
+ */
+app.post('/api/squad-matching/run', async (req, res) => {
+  try {
+    const { concertId } = req.body || {};
+    if (!concertId) {
+      return res.status(400).json({ error: 'Missing required field: concertId' });
+    }
+    if (!genAI) {
+      return res.status(503).json({ error: 'Gemini API key not configured — AI matching unavailable' });
+    }
+
+    // 1. Fetch all unmatched attendees for this concert
+    const unmatched = await Attendee.find({ concertId, isMatched: false });
+    if (unmatched.length < 2) {
+      return res.json({ ok: true, message: 'Not enough unmatched attendees to form squads', squadsCreated: 0 });
+    }
+
+    const attendeePayload = unmatched.map((a) => ({
+      wallet: a.walletAddress,
+      bio: a.bio,
+    }));
+
+    // 2. Build the AI prompt
+    const concert = concerts.find((c) => c.id === concertId);
+    const concertLabel = concert ? concert.title : concertId;
+
+    const systemPrompt =
+      'You are a matchmaking algorithm for a concert ticketing system. ' +
+      'Your job is to read user bios and group them into squads of 3 to 5 people ' +
+      'based on similar interests, concert goals, and "vibes". ' +
+      'You must strictly output valid JSON. Do not include markdown formatting, ' +
+      'backticks, or any conversational text. ' +
+      'If a user does not fit well with others, leave them in an "unmatched" array.';
+
+    const userPrompt =
+      `Here is the list of attendees waiting for a squad for ${concertLabel}:\n` +
+      JSON.stringify(attendeePayload, null, 2) +
+      '\n\nGroup these users. Output this exact JSON format:\n' +
+      '{\n' +
+      '  "squads": [\n' +
+      '    { "groupVibe": "Drinks & Chill", "members": ["0x123...", "0xABC..."] },\n' +
+      '    { "groupVibe": "Front Row Fanatics", "members": ["0x456...", "0xDEF..."] }\n' +
+      '  ],\n' +
+      '  "unmatched": ["0x999..."]\n' +
+      '}';
+
+    // 3. Call Gemini
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-2.5-flash',
+      systemInstruction: systemPrompt,
+    });
+    const result = await model.generateContent(userPrompt);
+    let rawText = result.response.text().trim();
+
+    // Strip markdown code fences if the model wraps them anyway
+    rawText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch (parseErr) {
+      console.error('[ai] Failed to parse matchmaking JSON:', rawText);
+      return res.status(500).json({ error: 'AI returned invalid JSON', raw: rawText });
+    }
+
+    const squadsData = parsed.squads || [];
+    const unmatchedWallets = parsed.unmatched || [];
+
+    // 4. Save squads to MongoDB and update attendees
+    const createdSquads = [];
+    for (const sq of squadsData) {
+      if (!sq.members || sq.members.length === 0) continue;
+
+      const matchedSquad = await MatchedSquad.create({
+        concertId,
+        members: sq.members,
+        groupVibe: sq.groupVibe || 'Unnamed Squad',
       });
 
-    // Use allSettled so a timeout on one signal doesn't crash the whole callback.
-    const [topArtistsResult, topTracksResult, recentResult] = await Promise.allSettled([
-      spotifyGet('https://api.spotify.com/v1/me/top/artists?time_range=long_term&limit=50'),
-      spotifyGet('https://api.spotify.com/v1/me/top/tracks?time_range=long_term&limit=50'),
-      spotifyGet('https://api.spotify.com/v1/me/player/recently-played?limit=50'),
-    ]);
+      await Attendee.updateMany(
+        { walletAddress: { $in: sq.members }, concertId },
+        { $set: { isMatched: true, squadId: matchedSquad._id } },
+      );
 
-    if (topArtistsResult.status === 'rejected') console.warn('[spotify] top-artists failed:', topArtistsResult.reason?.message);
-    if (topTracksResult.status  === 'rejected') console.warn('[spotify] top-tracks failed:',  topTracksResult.reason?.message);
-    if (recentResult.status     === 'rejected') console.warn('[spotify] recently-played failed (non-fatal):', recentResult.reason?.message);
-
-    const topArtists  = topArtistsResult.status === 'fulfilled' ? (topArtistsResult.value.data.items || []) : [];
-    const topTracks   = topTracksResult.status  === 'fulfilled' ? (topTracksResult.value.data.items  || []) : [];
-    const recentItems = recentResult.status      === 'fulfilled' ? (recentResult.value.data.items     || []) : [];
-
-    console.log(`[spotify] top-artists (${topArtists.length}):`, topArtists.slice(0, 5).map(a => a.name));
-
-    /** 50/40/10 score for a single artist name */
-    const scoreFor = (name) => {
-      const t = name.toLowerCase();
-      let s = 0;
-      const rank = topArtists.findIndex(a => a.name.toLowerCase() === t);
-      if (rank >= 0 && rank < 5)        s += 50;
-      else if (rank >= 5 && rank < 20)  s += 35;
-      else if (rank >= 20 && rank < 50) s += 20;
-      s += Math.min(topTracks.filter(tr => tr.artists.some(a => a.name.toLowerCase() === t)).length * 8, 40);
-      s += Math.min(recentItems.filter(i => i.track.artists.some(a => a.name.toLowerCase() === t)).length * 2, 10);
-      return s;
-    };
-
-    if (isGlobal) {
-      // Check every concert and bundle all scores into a single redirect.
-      const concertList = await getConcerts();
-      const scores = {};
-      for (const c of concertList) {
-        scores[c.id] = scoreFor(c.artist);
-        console.log(`[spotify-global] "${c.artist}" (id=${c.id}) score=${scores[c.id]}`);
-      }
-      const fanScoresStr = Object.entries(scores).map(([id, s]) => `${id}:${s}`).join(',');
-      return res.redirect(`${FRONTEND_URL}/?fan_scores=${encodeURIComponent(fanScoresStr)}`);
-    } else {
-      const score = scoreFor(artistName);
-      console.log(`[spotify] FINAL eventId=${eventId} artist="${artistName}" score=${score}/100`);
-      const fanTokenParam = score >= 60 ? `&fanToken=${encodeURIComponent(createFanToken(eventId, score))}` : '';
-      return res.redirect(`${FRONTEND_URL}/concert/${eventId}?score=${score}${fanTokenParam}`);
+      createdSquads.push({
+        _id: matchedSquad._id,
+        groupVibe: matchedSquad.groupVibe,
+        members: matchedSquad.members,
+      });
     }
 
+    console.log(
+      `[squad-matching] concertId=${concertId}: created ${createdSquads.length} squad(s), ` +
+      `${unmatchedWallets.length} still unmatched`,
+    );
+
+    return res.json({
+      ok: true,
+      squadsCreated: createdSquads.length,
+      squads: createdSquads,
+      unmatched: unmatchedWallets,
+    });
   } catch (err) {
-    console.error('[spotify] callback error', err?.response?.data || err?.message || err);
-    const fallback = isGlobal
-      ? `${FRONTEND_URL}/?spotify_error=1`
-      : `${FRONTEND_URL}/concert/${eventId}?score=0&spotify_error=1`;
-    return res.redirect(fallback);
+    console.error('[api] /api/squad-matching/run failed', err);
+    return res.status(500).json({ error: 'Squad matching failed' });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * GET /api/squad-matching/my-squad?walletAddress=0x...&concertId=abc
+ * Returns the caller's squad (or unmatched status).
+ */
+app.get('/api/squad-matching/my-squad', async (req, res) => {
+  try {
+    const { walletAddress, concertId } = req.query;
+    if (!walletAddress || !concertId) {
+      return res.status(400).json({ error: 'Missing query params: walletAddress, concertId' });
+    }
 
-const server = app.listen(PORT, '127.0.0.1', () => {
-  console.log(`[api] listening on http://127.0.0.1:${PORT}`);
+    const attendee = await Attendee.findOne({ walletAddress, concertId });
+    if (!attendee) {
+      return res.status(404).json({ error: 'Attendee not found — join squad matching first' });
+    }
+
+    if (!attendee.isMatched || !attendee.squadId) {
+      return res.json({ matched: false, message: 'You are still in the matching queue' });
+    }
+
+    const squad = await MatchedSquad.findById(attendee.squadId);
+    if (!squad) {
+      return res.json({ matched: false, message: 'Squad record missing — please re-join' });
+    }
+
+    return res.json({
+      matched: true,
+      squad: {
+        _id: squad._id,
+        groupVibe: squad.groupVibe,
+        members: squad.members,
+        createdAt: squad.createdAt,
+      },
+    });
+  } catch (err) {
+    console.error('[api] /api/squad-matching/my-squad failed', err);
+    return res.status(500).json({ error: 'Failed to fetch squad status' });
+  }
+});
+
+/**
+ * POST /api/squad-matching/join-and-match
+ * Body: { walletAddress, concertId, bio }
+ * One-click: joins the queue, triggers AI matchmaking, returns the squad.
+ */
+app.post('/api/squad-matching/join-and-match', async (req, res) => {
+  try {
+    const { walletAddress, concertId, bio } = req.body || {};
+    if (!walletAddress || !concertId || !bio) {
+      return res.status(400).json({ error: 'Missing required fields: walletAddress, concertId, bio' });
+    }
+    if (!genAI) {
+      return res.status(503).json({ error: 'Gemini API key not configured' });
+    }
+
+    // 1. Check if already matched
+    const existing = await Attendee.findOne({ walletAddress, concertId, isMatched: true });
+    if (existing?.squadId) {
+      const existingSquad = await MatchedSquad.findById(existing.squadId);
+      if (existingSquad) {
+        return res.json({ ok: true, alreadyMatched: true, squad: existingSquad });
+      }
+    }
+
+    // 2. Upsert attendee
+    await Attendee.findOneAndUpdate(
+      { walletAddress, concertId },
+      { walletAddress, concertId, bio, isMatched: false, squadId: null },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    // 3. Fetch all unmatched for this concert
+    const unmatched = await Attendee.find({ concertId, isMatched: false });
+    if (unmatched.length < 2) {
+      return res.json({ ok: true, matched: false, message: 'Waiting for more fans to join…', queueSize: unmatched.length });
+    }
+
+    const attendeePayload = unmatched.map((a) => ({ wallet: a.walletAddress, bio: a.bio }));
+    const concert = concerts.find((c) => c.id === concertId);
+    const concertLabel = concert ? concert.title : concertId;
+
+    const systemPrompt =
+      'You are a matchmaking algorithm for a concert ticketing system. ' +
+      'Your job is to read user bios and group them into squads of 2 to 5 people ' +
+      'based on similar interests, concert goals, and "vibes". ' +
+      'You must strictly output valid JSON. Do not include markdown formatting, ' +
+      'backticks, or any conversational text. ' +
+      'If a user does not fit well with others, leave them in an "unmatched" array.';
+
+    const userPrompt =
+      `Here is the list of attendees waiting for a squad for ${concertLabel}:\n` +
+      JSON.stringify(attendeePayload, null, 2) +
+      '\n\nGroup these users. Output this exact JSON format:\n' +
+      '{\n  "squads": [{ "groupVibe": "...", "members": ["wallet1", "wallet2"] }],\n  "unmatched": []\n}';
+
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', systemInstruction: systemPrompt });
+    const result = await model.generateContent(userPrompt);
+    let rawText = result.response.text().trim();
+    rawText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      console.error('[ai] join-and-match parse error:', rawText);
+      return res.status(500).json({ error: 'AI returned invalid JSON' });
+    }
+
+    // 4. Save squads
+    let mySquad = null;
+    for (const sq of (parsed.squads || [])) {
+      if (!sq.members || sq.members.length === 0) continue;
+      const matchedSquad = await MatchedSquad.create({
+        concertId, members: sq.members, groupVibe: sq.groupVibe || 'Unnamed Squad',
+      });
+      await Attendee.updateMany(
+        { walletAddress: { $in: sq.members }, concertId },
+        { $set: { isMatched: true, squadId: matchedSquad._id } },
+      );
+      if (sq.members.includes(walletAddress)) {
+        mySquad = matchedSquad;
+      }
+    }
+
+    if (mySquad) {
+      return res.json({ ok: true, matched: true, squad: mySquad });
+    }
+    return res.json({ ok: true, matched: false, message: 'AI could not find a good match yet. Try again soon!' });
+  } catch (err) {
+    console.error('[api] /api/squad-matching/join-and-match failed', err);
+    return res.status(500).json({ error: 'Squad matching failed' });
+  }
+});
+
+/**
+ * GET /api/squad-matching/lobby?concertId=abc
+ * Returns lobby overview: queue size, existing squads, concert info.
+ */
+app.get('/api/squad-matching/lobby', async (req, res) => {
+  try {
+    const { concertId } = req.query;
+    if (!concertId) {
+      return res.status(400).json({ error: 'Missing query param: concertId' });
+    }
+
+    const concert = concerts.find((c) => c.id === concertId);
+    const queueCount = await Attendee.countDocuments({ concertId, isMatched: false });
+    const matchedCount = await Attendee.countDocuments({ concertId, isMatched: true });
+    const squads = await MatchedSquad.find({ concertId }).sort({ createdAt: -1 }).limit(20);
+
+    return res.json({
+      ok: true,
+      concertId,
+      concertTitle: concert ? concert.title : null,
+      concertArtist: concert ? concert.artist : null,
+      queueCount,
+      matchedCount,
+      totalAttendees: queueCount + matchedCount,
+      squads: squads.map((s) => ({
+        _id: s._id,
+        groupVibe: s.groupVibe,
+        memberCount: s.members.length,
+        members: s.members,
+        createdAt: s.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error('[api] /api/squad-matching/lobby failed', err);
+    return res.status(500).json({ error: 'Failed to fetch lobby data' });
+  }
+});
+
+/**
+ * GET /api/squad-matching/available-squads?concertId=abc
+ * Returns all squads for a concert that are open for joining (< 5 members).
+ * If concertId is omitted, returns all available squads across all concerts.
+ */
+app.get('/api/squad-matching/available-squads', async (req, res) => {
+  try {
+    const { concertId } = req.query;
+
+    // Find squads with fewer than 5 members (open for joining)
+    // If concertId is provided, filter by concert; otherwise get all
+    const query = concertId ? { concertId } : {};
+    const squads = await MatchedSquad.find(query).sort({ createdAt: -1 });
+    const availableSquads = squads.filter((s) => s.members.length < 5);
+
+    // Get bios for members (need to handle multiple concerts)
+    const wallets = availableSquads.flatMap((s) => s.members);
+    const attendeeQuery = concertId
+      ? { walletAddress: { $in: wallets }, concertId }
+      : { walletAddress: { $in: wallets } };
+    const attendees = await Attendee.find(attendeeQuery);
+    // Map by wallet+concertId to handle multiple concerts
+    const bioMap = Object.fromEntries(
+      attendees.map((a) => [`${a.walletAddress}-${a.concertId}`, a.bio])
+    );
+
+    return res.json({
+      ok: true,
+      squads: availableSquads.map((s) => ({
+        _id: s._id,
+        concertId: s.concertId,
+        groupVibe: s.groupVibe,
+        memberCount: s.members.length,
+        members: s.members,
+        memberBios: s.members.map((w) => ({
+          wallet: w,
+          bio: bioMap[`${w}-${s.concertId}`] || '',
+        })),
+        createdAt: s.createdAt,
+      })),
+    });
+  } catch (err) {
+    console.error('[api] /api/squad-matching/available-squads failed', err);
+    return res.status(500).json({ error: 'Failed to fetch available squads' });
+  }
+});
+
+/**
+ * POST /api/squad-matching/find-matching-squads
+ * Body: { walletAddress, concertId, bio }
+ * AI-powered: finds 2-3 squads that best match the user's vibe/bio.
+ * If no existing squads match well, creates a new squad.
+ */
+app.post('/api/squad-matching/find-matching-squads', async (req, res) => {
+  try {
+    const { walletAddress, concertId, bio } = req.body || {};
+    if (!walletAddress || !concertId || !bio) {
+      return res.status(400).json({ error: 'Missing required fields: walletAddress, concertId, bio' });
+    }
+    if (!genAI) {
+      return res.status(503).json({ error: 'Gemini API key not configured' });
+    }
+
+    // Check if already matched
+    const existing = await Attendee.findOne({ walletAddress, concertId, isMatched: true });
+    if (existing?.squadId) {
+      const existingSquad = await MatchedSquad.findById(existing.squadId);
+      if (existingSquad) {
+        return res.json({ ok: true, alreadyMatched: true, currentSquad: existingSquad, suggestions: [] });
+      }
+    }
+
+    // Upsert attendee (save their bio)
+    await Attendee.findOneAndUpdate(
+      { walletAddress, concertId },
+      { walletAddress, concertId, bio, isMatched: false, squadId: null },
+      { upsert: true, new: true, setDefaultsOnInsert: true },
+    );
+
+    // Find available squads (< 5 members)
+    const squads = await MatchedSquad.find({ concertId });
+    const availableSquads = squads.filter((s) => s.members.length < 5);
+
+    if (availableSquads.length === 0) {
+      // No squads exist yet — check if there are other unmatched users to form a new squad
+      const unmatched = await Attendee.find({ concertId, isMatched: false });
+      if (unmatched.length >= 2) {
+        // Create a new squad with AI
+        return await createNewSquadWithAI(res, walletAddress, concertId, bio, unmatched);
+      }
+      return res.json({
+        ok: true,
+        suggestions: [],
+        message: 'No squads available yet. Waiting for more fans to join!',
+        queueSize: unmatched.length,
+      });
+    }
+
+    // Get bios for all squad members
+    const allWallets = availableSquads.flatMap((s) => s.members);
+    const attendees = await Attendee.find({ walletAddress: { $in: allWallets }, concertId });
+    const bioMap = Object.fromEntries(attendees.map((a) => [a.walletAddress, a.bio]));
+
+    // Build squad info for AI
+    const squadInfo = availableSquads.map((s) => ({
+      squadId: s._id.toString(),
+      groupVibe: s.groupVibe,
+      memberCount: s.members.length,
+      memberBios: s.members.map((w) => bioMap[w] || 'No bio').join('; '),
+    }));
+
+    const concert = concerts.find((c) => c.id === concertId);
+    const concertLabel = concert ? concert.title : concertId;
+
+    // Ask AI to rank squads for this user
+    const systemPrompt =
+      'You are a squad matching assistant for a concert ticketing system. ' +
+      'Your job is to analyze a user\'s bio and find the best matching squads from existing options. ' +
+      'You must strictly output valid JSON. Do not include markdown formatting, backticks, or conversational text.';
+
+    const userPrompt =
+      `Concert: ${concertLabel}\n\n` +
+      `User's bio: "${bio}"\n\n` +
+      `Available squads:\n${JSON.stringify(squadInfo, null, 2)}\n\n` +
+      `Rank the top 2-3 squads that best match this user's vibe and interests. ` +
+      `If none of the squads are a good match (compatibility < 50%), return an empty array.\n\n` +
+      `Output this exact JSON format:\n` +
+      '{\n' +
+      '  "suggestions": [\n' +
+      '    { "squadId": "...", "matchScore": 85, "reason": "Why this squad is a good match" },\n' +
+      '    { "squadId": "...", "matchScore": 72, "reason": "..." }\n' +
+      '  ],\n' +
+      '  "shouldCreateNew": false\n' +
+      '}';
+
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', systemInstruction: systemPrompt });
+    const result = await model.generateContent(userPrompt);
+    let rawText = result.response.text().trim();
+    rawText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+    let parsed;
+    try {
+      parsed = JSON.parse(rawText);
+    } catch {
+      console.error('[ai] find-matching-squads parse error:', rawText);
+      // Fallback: return all available squads without AI ranking
+      return res.json({
+        ok: true,
+        suggestions: availableSquads.slice(0, 3).map((s) => ({
+          squad: {
+            _id: s._id,
+            groupVibe: s.groupVibe,
+            memberCount: s.members.length,
+            members: s.members,
+            memberBios: s.members.map((w) => ({ wallet: w, bio: bioMap[w] || '' })),
+          },
+          matchScore: 50,
+          reason: 'AI ranking unavailable',
+        })),
+      });
+    }
+
+    // If AI suggests creating new squad
+    if (parsed.shouldCreateNew || !parsed.suggestions || parsed.suggestions.length === 0) {
+      const unmatched = await Attendee.find({ concertId, isMatched: false });
+      if (unmatched.length >= 2) {
+        return await createNewSquadWithAI(res, walletAddress, concertId, bio, unmatched);
+      }
+      return res.json({
+        ok: true,
+        suggestions: [],
+        message: 'No good matches found. Waiting for more compatible fans!',
+        queueSize: unmatched.length,
+      });
+    }
+
+    // Build detailed suggestions
+    const suggestions = [];
+    for (const sug of parsed.suggestions.slice(0, 3)) {
+      const squad = availableSquads.find((s) => s._id.toString() === sug.squadId);
+      if (squad) {
+        suggestions.push({
+          squad: {
+            _id: squad._id,
+            groupVibe: squad.groupVibe,
+            memberCount: squad.members.length,
+            members: squad.members,
+            memberBios: squad.members.map((w) => ({ wallet: w, bio: bioMap[w] || '' })),
+          },
+          matchScore: sug.matchScore || 50,
+          reason: sug.reason || '',
+        });
+      }
+    }
+
+    return res.json({ ok: true, suggestions });
+  } catch (err) {
+    console.error('[api] /api/squad-matching/find-matching-squads failed', err);
+    return res.status(500).json({ error: 'Failed to find matching squads' });
+  }
+});
+
+// Helper function to create a new squad with AI
+async function createNewSquadWithAI(res, walletAddress, concertId, bio, unmatched) {
+  const attendeePayload = unmatched.map((a) => ({ wallet: a.walletAddress, bio: a.bio }));
+  const concert = concerts.find((c) => c.id === concertId);
+  const concertLabel = concert ? concert.title : concertId;
+
+  const systemPrompt =
+    'You are a matchmaking algorithm for a concert ticketing system. ' +
+    'Your job is to read user bios and group them into squads of 2 to 5 people ' +
+    'based on similar interests, concert goals, and "vibes". ' +
+    'You must strictly output valid JSON. Do not include markdown formatting, backticks, or conversational text.';
+
+  const userPrompt =
+    `Here is the list of attendees waiting for a squad for ${concertLabel}:\n` +
+    JSON.stringify(attendeePayload, null, 2) +
+    '\n\nGroup these users. Output this exact JSON format:\n' +
+    '{\n  "squads": [{ "groupVibe": "...", "members": ["wallet1", "wallet2"] }],\n  "unmatched": []\n}';
+
+  const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash', systemInstruction: systemPrompt });
+  const result = await model.generateContent(userPrompt);
+  let rawText = result.response.text().trim();
+  rawText = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+  let parsed;
+  try {
+    parsed = JSON.parse(rawText);
+  } catch {
+    console.error('[ai] createNewSquadWithAI parse error:', rawText);
+    return res.status(500).json({ error: 'AI returned invalid JSON' });
+  }
+
+  // Save squads and find the one containing our user
+  let mySquad = null;
+  for (const sq of (parsed.squads || [])) {
+    if (!sq.members || sq.members.length === 0) continue;
+    const matchedSquad = await MatchedSquad.create({
+      concertId, members: sq.members, groupVibe: sq.groupVibe || 'Unnamed Squad',
+    });
+    await Attendee.updateMany(
+      { walletAddress: { $in: sq.members }, concertId },
+      { $set: { isMatched: true, squadId: matchedSquad._id } },
+    );
+    if (sq.members.includes(walletAddress)) {
+      mySquad = matchedSquad;
+    }
+  }
+
+  if (mySquad) {
+    return res.json({
+      ok: true,
+      newSquadCreated: true,
+      squad: mySquad,
+      suggestions: [{
+        squad: {
+          _id: mySquad._id,
+          groupVibe: mySquad.groupVibe,
+          memberCount: mySquad.members.length,
+          members: mySquad.members,
+        },
+        matchScore: 100,
+        reason: 'AI created this squad based on your vibe!',
+      }],
+    });
+  }
+
+  return res.json({ ok: true, suggestions: [], message: 'AI could not find a good match yet.' });
+}
+
+/**
+ * POST /api/squad-matching/join-squad
+ * Body: { walletAddress, concertId, squadId }
+ * Joins an existing squad.
+ */
+app.post('/api/squad-matching/join-squad', async (req, res) => {
+  try {
+    const { walletAddress, concertId, squadId } = req.body || {};
+    if (!walletAddress || !concertId || !squadId) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const squad = await MatchedSquad.findById(squadId);
+    if (!squad) {
+      return res.status(404).json({ error: 'Squad not found' });
+    }
+    if (squad.concertId !== concertId) {
+      return res.status(400).json({ error: 'Squad does not belong to this concert' });
+    }
+    if (squad.members.length >= 5) {
+      return res.status(400).json({ error: 'Squad is full' });
+    }
+    if (squad.members.includes(walletAddress)) {
+      return res.json({ ok: true, message: 'Already in this squad', squad });
+    }
+
+    // Remove from current squad if any
+    const attendee = await Attendee.findOne({ walletAddress, concertId });
+    if (attendee?.squadId && attendee.squadId.toString() !== squadId) {
+      await MatchedSquad.findByIdAndUpdate(attendee.squadId, {
+        $pull: { members: walletAddress },
+      });
+    }
+
+    // Add to new squad
+    squad.members.push(walletAddress);
+    await squad.save();
+
+    // Update attendee
+    await Attendee.findOneAndUpdate(
+      { walletAddress, concertId },
+      { isMatched: true, squadId: squad._id },
+      { upsert: true },
+    );
+
+    return res.json({ ok: true, squad });
+  } catch (err) {
+    console.error('[api] /api/squad-matching/join-squad failed', err);
+    return res.status(500).json({ error: 'Failed to join squad' });
+  }
+});
+
+/**
+ * POST /api/squad-matching/leave-squad
+ * Body: { walletAddress, concertId }
+ * Leaves current squad and goes back to unmatched.
+ */
+app.post('/api/squad-matching/leave-squad', async (req, res) => {
+  try {
+    const { walletAddress, concertId } = req.body || {};
+    if (!walletAddress || !concertId) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    const attendee = await Attendee.findOne({ walletAddress, concertId });
+    if (!attendee?.squadId) {
+      return res.json({ ok: true, message: 'Not in any squad' });
+    }
+
+    // Remove from squad
+    await MatchedSquad.findByIdAndUpdate(attendee.squadId, {
+      $pull: { members: walletAddress },
+    });
+
+    // Update attendee
+    attendee.isMatched = false;
+    attendee.squadId = null;
+    await attendee.save();
+
+    return res.json({ ok: true, message: 'Left squad successfully' });
+  } catch (err) {
+    console.error('[api] /api/squad-matching/leave-squad failed', err);
+    return res.status(500).json({ error: 'Failed to leave squad' });
+  }
+});
+
+// ─── SQUAD CHAT ───────────────────────────────────────────────────────────────
+
+/**
+ * POST /api/squad-chat/send
+ * Body: { squadId, walletAddress, text }
+ */
+app.post('/api/squad-chat/send', async (req, res) => {
+  try {
+    const { squadId, walletAddress, text } = req.body || {};
+    if (!squadId || !walletAddress || !text) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+    const msg = await SquadMessage.create({ squadId, walletAddress, text: text.slice(0, 500) });
+    return res.json({ ok: true, message: msg });
+  } catch (err) {
+    console.error('[api] /api/squad-chat/send failed', err);
+    return res.status(500).json({ error: 'Failed to send message' });
+  }
+});
+
+/**
+ * GET /api/squad-chat/messages?squadId=...&since=ISO
+ * Returns up to 100 messages, optionally filtered by `since` timestamp.
+ */
+app.get('/api/squad-chat/messages', async (req, res) => {
+  try {
+    const { squadId, since } = req.query;
+    if (!squadId) return res.status(400).json({ error: 'Missing squadId' });
+    const filter = { squadId };
+    if (since) filter.createdAt = { $gt: new Date(since) };
+    const messages = await SquadMessage.find(filter).sort({ createdAt: 1 }).limit(100);
+    return res.json({ ok: true, messages });
+  } catch (err) {
+    console.error('[api] /api/squad-chat/messages failed', err);
+    return res.status(500).json({ error: 'Failed to fetch messages' });
+  }
+});
+
+const server = app.listen(PORT, async () => {
+  await connectDB();
+  console.log(`[api] listening on http://localhost:${PORT}`);
 });
 
 server.on('error', (err) => {
@@ -800,12 +1237,12 @@ async function calculateTransit({ from, to }) {
 }
 
 /**
- * In-memory squad expense tracker — persists for server lifetime.
+ * squad expense tracker — persisted in MongoDB.
  */
-function logExpense({ payer, amount, description }, channelId) {
-  if (!expenseLedger.has(channelId)) expenseLedger.set(channelId, []);
-  const ledger = expenseLedger.get(channelId);
-  ledger.push({ payer, amount, description });
+async function logExpense({ payer, amount, description }, channelId) {
+  await Expense.create({ channelId, payer, amount, description });
+  
+  const ledger = await Expense.find({ channelId }).sort({ createdAt: 1 });
   const total     = ledger.reduce((s, e) => s + e.amount, 0);
   const breakdown = ledger.map((e) => `  • ${e.payer}: $${e.amount} — ${e.description}`).join('\n');
   return (
