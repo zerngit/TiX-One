@@ -8,6 +8,7 @@ import { Transaction } from "@mysten/sui/transactions";
 import { bcs } from "@mysten/sui/bcs";
 import {
   CLOCK_OBJECT_ID,
+  LISTING_REGISTRY_ID,
   OCT_TYPE,
   PACKAGE_ID,
   TICKET_PRICE_MIST,
@@ -319,6 +320,50 @@ export function useBuyTicket() {
     finally { setIsBuying(false); }
   };
 
+  /**
+   * "Smart Sell" — single button that routes automatically:
+   *   • Queue non-empty → FIFO escrow swap (ticket to buyer, OCT to seller)
+   *   • Queue empty     → list ticket in seller's Kiosk at original_price
+   */
+  const sellOrListTicket = async (
+    ticketObjectId: string,
+    concertObjectId: string,
+    waitlistObjectId: string,
+    kioskId: string,
+    kioskOwnerCapId: string,
+  ) => {
+    setBuyError("");
+    setBuyDigest("");
+    if (!currentAccount) { setBuyError("Connect OneWallet to continue."); return null; }
+    if (!ticketObjectId || !concertObjectId || !waitlistObjectId || !kioskId || !kioskOwnerCapId) {
+      setBuyError("Missing required object IDs.");
+      return null;
+    }
+    setIsBuying(true);
+    try {
+      const tx = new Transaction();
+      tx.setSender(currentAccount.address);
+      tx.setGasBudget(100_000_000);
+      tx.moveCall({
+        target: `${PACKAGE_ID}::ticket::sell_or_list`,
+        arguments: [
+          tx.object(waitlistObjectId),
+          tx.object(ticketObjectId),
+          tx.object(concertObjectId),
+          tx.object(kioskId),
+          tx.object(kioskOwnerCapId),
+          tx.object(LISTING_REGISTRY_ID),
+        ],
+      });
+      const result = await signAndExecuteTransaction({ transaction: tx });
+      const receipt = await suiClient.waitForTransaction({ digest: result.digest, options: { showEffects: true } });
+      if (receipt.effects?.status?.status === "success") { setBuyDigest(result.digest); return result.digest; }
+      setBuyError(`On-chain error: ${receipt.effects?.status?.error || "unknown"}`);
+      return null;
+    } catch (e: any) { setBuyError(e?.message || "Transaction failed"); return null; }
+    finally { setIsBuying(false); }
+  };
+
   return {
     buyTicket,
     buyTicketAtPrice,
@@ -326,6 +371,7 @@ export function useBuyTicket() {
     joinWaitlist,
     leaveWaitlist,
     fulfillWaitlistOrder,
+    sellOrListTicket,
     isBuying,
     buyError,
     buyDigest,

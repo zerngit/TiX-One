@@ -15,8 +15,7 @@ import {
   Clock,
   Copy,
   MapPin,
-  Repeat2,
-  Store,
+  DollarSign,
   CheckCircle2,
 } from "lucide-react";
 import { concerts } from "../data/concerts";
@@ -101,8 +100,6 @@ export default function MyTicketPage() {
   const [kioskId, setKioskId] = useState<string>("");
   const [kioskOwnerCapId, setKioskOwnerCapId] = useState<string>("");
   const [isCreatingKiosk, setIsCreatingKiosk] = useState(false);
-  const [isListing, setIsListing] = useState(false);
-  const [showListingModal, setShowListingModal] = useState<false | "public">(false);
   const [isSquadPopupOpen, setIsSquadPopupOpen] = useState(false);
 
   const [listingStatusByTicketId, setListingStatusByTicketId] = useState<
@@ -112,8 +109,8 @@ export default function MyTicketPage() {
   // On-chain concert data (with concert_object_id + waitlist_object_id from Supabase)
   const { concert: supabaseConcert } = useConcertById(selectedConcert?.id);
 
-  // Waitlist hook
-  const { fulfillWaitlistOrder, isBuying: isReturning } = useBuyTicket();
+  // Smart-sell hook
+  const { sellOrListTicket, isBuying: isSelling } = useBuyTicket();
 
   useEffect(() => {
     if (!currentAccount?.address) {
@@ -425,78 +422,52 @@ export default function MyTicketPage() {
     }
   };
 
-  const listPublic = async () => {
+  /**
+   * Smart Sell — one button:
+   *  • Waitlist non-empty → ticket goes to first waiting buyer, OCT comes to seller.
+   *  • Waitlist empty    → ticket is auto-listed in seller's Kiosk at face value.
+   */
+  const sellAtFaceValue = async () => {
     if (!currentAccount || !selectedTicket) return;
     if (!requireKiosk()) return;
 
-    const existingStatus = listingStatusByTicketId?.[selectedTicket.objectId];
-    if (existingStatus === "public") {
-      alert("This ticket is already listed and cannot be listed again.");
+    if (listingStatusByTicketId?.[selectedTicket.objectId] === "public") {
+      alert("This ticket is already listed and cannot be sold again.");
       return;
     }
-
-    const priceInMist = parseMistU64(selectedTicket.original_price);
-    if (priceInMist === null) {
-      alert("Ticket price is missing or invalid.");
-      return;
-    }
-
-    setIsListing(true);
-    try {
-      const tx = new Transaction();
-      tx.moveCall({
-        target: `${PACKAGE_ID}::ticket::safe_list_ticket`,
-        arguments: [
-          tx.object(kioskId),
-          tx.object(kioskOwnerCapId),
-          tx.object(selectedTicket.objectId),
-          tx.pure.u64(priceInMist),
-          tx.object(LISTING_REGISTRY_ID),
-        ],
-      });
-
-      await signAndExecuteTransaction({ transaction: tx });
-      setShowListingModal(false);
-      setListingStatusByTicketId((prev) => ({ ...prev, [selectedTicket.objectId]: "public" }));
-      alert("✅ Ticket listed on global marketplace!");
-      navigate("/marketplace");
-    } catch (e) {
-      console.error("[MyTicket] list public error", e);
-      alert("Transaction failed. Check the console for details.");
-    } finally {
-      setIsListing(false);
-    }
-  };
-
-  /**
-   * Return a ticket to the waitlist — the first waiting buyer gets the ticket
-   * and the seller receives the face-value OCT from escrow.
-   */
-  const returnToWaitlist = async () => {
-    if (!currentAccount || !selectedTicket) return;
 
     const concertObjectId = supabaseConcert?.concert_object_id;
     const waitlistObjectId = supabaseConcert?.waitlist_object_id;
 
     if (!concertObjectId) {
-      alert("Concert is not yet linked on-chain. Sell on the public marketplace instead.");
+      alert("Concert is not yet linked on-chain. Please try again later.");
       return;
     }
     if (!waitlistObjectId) {
-      alert("No waitlist is active for this concert yet.");
+      alert("No waitlist is active for this concert.");
       return;
     }
 
     const confirmed = window.confirm(
-      "Return this ticket to the waitlist?\nThe first waiting buyer will receive your ticket and you will receive the face-value OCT."
+      `Sell this ticket at face value (${formatMistToOct2(selectedTicket.original_price) ?? "?"} OCT)?\n\n` +
+      `• If someone is in the waitlist → they get your ticket instantly and you receive OCT.\n` +
+      `• If no one is waiting → your ticket is listed on the public marketplace.`
     );
     if (!confirmed) return;
 
-    await fulfillWaitlistOrder(
+    const digest = await sellOrListTicket(
       selectedTicket.objectId,
       concertObjectId,
-      waitlistObjectId
+      waitlistObjectId,
+      kioskId,
+      kioskOwnerCapId,
     );
+
+    if (digest) {
+      setListingStatusByTicketId((prev) => ({ ...prev, [selectedTicket.objectId]: "public" }));
+      alert("✅ Done! Your ticket was sold or listed at face value.");
+      navigate("/marketplace");
+    }
   };
 
   return (
@@ -729,51 +700,36 @@ export default function MyTicketPage() {
                         </button>
                       </div>
                     ) : (
-                      <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      <div className="mt-4">
                         {listingStatusByTicketId?.[selectedTicket.objectId] === "public" ? (
                           <button
-                            disabled={true}
+                            disabled
                             className="w-full rounded-xl border border-green-500/40 bg-green-500/10 text-green-300 py-3 px-5 font-bold cursor-not-allowed"
-                            title="This ticket is already listed on the global marketplace"
                           >
                             <div className="flex items-center justify-center gap-2">
                               <CheckCircle2 className="w-4 h-4 text-green-400" />
-                              Listed on Global Marketplace
+                              Sold / Listed
                             </div>
-                            <div className="mt-1 text-xs text-green-300/80 font-medium">Cannot list again</div>
+                            <div className="mt-1 text-xs text-green-300/80 font-medium">Transaction complete</div>
                           </button>
                         ) : (
                           <button
-                            onClick={() => setShowListingModal("public")}
-                            disabled={isListing}
-                            className="w-full rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 border-none text-white py-3 px-5 hover:from-pink-500 hover:to-purple-500 transition-colors font-bold shadow-[0_0_15px_rgba(236,72,153,0.4)] disabled:opacity-60 disabled:cursor-not-allowed"
-                            title="Public resale with face-value price cap"
+                            onClick={sellAtFaceValue}
+                            disabled={isSelling || !supabaseConcert?.waitlist_object_id || !supabaseConcert?.concert_object_id}
+                            className="w-full rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 border-none text-white py-4 px-5 hover:from-pink-500 hover:to-purple-500 transition-colors font-bold shadow-[0_0_20px_rgba(236,72,153,0.5)] disabled:opacity-60 disabled:cursor-not-allowed"
+                            title="Sell at face value — goes to waitlist buyer first, or listed on marketplace if queue is empty"
                           >
-                            <div className="flex items-center justify-center gap-2">
-                              <Store className="w-4 h-4 text-white" />
-                              List on Global Market
+                            <div className="flex items-center justify-center gap-2 text-base">
+                              <DollarSign className="w-5 h-5" />
+                              {isSelling ? "Processing…" : "Sell at Face Value"}
                             </div>
-                            <div className="mt-1 text-xs text-pink-200 font-medium">Public resale with price cap</div>
+                            <div className="mt-1 text-xs text-pink-200 font-medium">
+                              {supabaseConcert?.waitlist_object_id
+                                ? "Priority to waitlist buyers · Falls back to marketplace"
+                                : "Loading concert data…"}
+                            </div>
                           </button>
                         )}
-
-                        {/* Return to Waitlist: gives ticket to first waiting buyer, seller gets OCT */}
-                        <button
-                          onClick={returnToWaitlist}
-                          disabled={isReturning || !supabaseConcert?.waitlist_object_id}
-                          title={supabaseConcert?.waitlist_object_id
-                            ? "Send ticket to first waiting buyer and receive OCT"
-                            : "No active waitlist for this concert"}
-                          className="w-full rounded-xl border-2 border-purple-400 bg-transparent text-purple-300 py-3 px-5 hover:bg-purple-900/30 transition-colors font-bold disabled:opacity-50 disabled:cursor-not-allowed"
-                        >
-                          <div className="flex items-center justify-center gap-2">
-                            <Repeat2 className="w-4 h-4" />
-                            {isReturning ? "Processing\u2026" : "Return to Waitlist"}
-                          </div>
-                          <div className="mt-1 text-xs text-purple-400 font-medium">
-                            {supabaseConcert?.waitlist_object_id ? "Send to next waiting fan" : "No waitlist active"}
-                          </div>
-                        </button>
                       </div>
                     )}
 
@@ -793,43 +749,6 @@ export default function MyTicketPage() {
         concertId={selectedConcert?.id || ""}
       />
 
-      {/* --- MODAL --- */}
-      {showListingModal && selectedTicket && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={() => setShowListingModal(false)}>
-          <div className="w-full max-w-md rounded-3xl border border-pink-500/50 bg-gradient-to-br from-purple-950 to-indigo-950 neon-border backdrop-blur-md p-6 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-            <div className="text-xl font-bold text-white neon-text">
-              List on Global Market
-            </div>
-            <div className="mt-2 text-sm text-pink-200">
-              Face-value policy enforced: resale is capped at the original price.
-            </div>
-
-            <div className="mt-5 rounded-2xl border border-pink-500/30 bg-purple-900/50 p-5">
-              <div className="text-xs font-bold uppercase tracking-wider text-pink-400">Fixed resale price</div>
-              <div className="mt-2 text-3xl font-bold text-white drop-shadow-md">
-                {formatMistToOct2(selectedTicket.original_price) ?? "—"} <span className="text-pink-300 text-lg">OCT</span>
-              </div>
-            </div>
-
-            <div className="mt-6 grid grid-cols-2 gap-3">
-              <button
-                onClick={() => setShowListingModal(false)}
-                disabled={isListing}
-                className="w-full rounded-xl border-2 border-pink-500 bg-transparent py-3 px-5 text-pink-300 hover:bg-pink-900/30 transition-colors font-bold disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={listPublic}
-                disabled={isListing}
-                className="w-full rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 border-none py-3 px-5 text-white hover:from-pink-500 hover:to-purple-500 transition-colors font-bold shadow-[0_0_15px_rgba(236,72,153,0.4)] disabled:opacity-60 disabled:cursor-not-allowed"
-              >
-                {isListing ? "Processing…" : "Confirm"}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }

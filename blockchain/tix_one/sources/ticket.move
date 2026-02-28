@@ -593,6 +593,54 @@ public fun fulfill_waitlist_order(
 }
 
 // =========================================================
+// --- SMART SELL: sell_or_list ---
+// =========================================================
+/// One-button "Sell at Face Value" for the seller.
+///
+/// • If the waitlist queue has buyers  → instant FIFO escrow swap:
+///     ticket transferred to first waiting buyer, escrowed OCT to seller.
+/// • If the waitlist queue is empty    → auto-list in seller's Kiosk:
+///     ticket placed at `ticket.original_price`, TicketListedEvent emitted
+///     for marketplace discovery.
+///
+/// In both cases the price cap is enforced: ticket.original_price ≤ face_value.
+#[allow(lint(self_transfer))]
+public fun sell_or_list(
+    waitlist: &mut Waitlist,
+    ticket: Ticket,
+    concert: &Concert,
+    kiosk: &mut Kiosk,
+    cap: &one::kiosk::KioskOwnerCap,
+    _registry: &mut ListingRegistry,
+    ctx: &mut TxContext,
+) {
+    assert!(object::id(concert) == waitlist.concert_id, EWrongConcert);
+    assert!(ticket.original_price <= waitlist.face_value, EPriceTooHigh);
+
+    if (!waitlist.queue.is_empty()) {
+        // ── Path A: waitlist buyer exists — instant swap ──────────────────
+        let seller = ctx.sender();
+        let WaitlistEntry { buyer, escrow_balance } = waitlist.queue.remove(0);
+        let amount = balance::value(&escrow_balance);
+        let payment = coin::from_balance(escrow_balance, ctx);
+        transfer::public_transfer(payment, seller);
+        transfer::public_transfer(ticket, buyer);
+        one::event::emit(WaitlistFulfilled {
+            waitlist_id: object::id(waitlist),
+            concert_id: waitlist.concert_id,
+            buyer,
+            seller,
+            amount,
+        });
+    } else {
+        // ── Path B: nobody waiting — list in kiosk at face value ──────────
+        let price = ticket.original_price;
+        emit_listing_event(&ticket, price, ctx);
+        one::kiosk::place_and_list(kiosk, cap, ticket, price);
+    }
+}
+
+// =========================================================
 // --- 11. THE GATEKEEPER: VERIFY AND CHECK-IN ---
 // =========================================================
 #[allow(lint(public_entry))]
