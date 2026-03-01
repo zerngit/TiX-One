@@ -4,7 +4,6 @@ import {
   ConnectButton,
   useCurrentAccount,
   useSignAndExecuteTransaction,
-  useSignPersonalMessage,
   useSuiClient,
 } from "@mysten/dapp-kit";
 import { Transaction } from "@mysten/sui/transactions";
@@ -60,7 +59,6 @@ export default function MyTicketPage() {
     return `${whole.toString()}.${cents.toString().padStart(2, "0")}`;
   };
 
-  const { mutateAsync: signPersonalMessage } = useSignPersonalMessage();
   const { mutateAsync: signAndExecuteTransaction } = useSignAndExecuteTransaction();
 
   const [tickets, setTickets] = useState<TicketFields[]>([]);
@@ -95,7 +93,6 @@ export default function MyTicketPage() {
   }, [selectedTicket]);
 
   const [isLoading, setIsLoading] = useState(true);
-  const [signature, setSignature] = useState<string | null>(null);
 
   const [kioskId, setKioskId] = useState<string>("");
   const [kioskOwnerCapId, setKioskOwnerCapId] = useState<string>("");
@@ -334,22 +331,6 @@ export default function MyTicketPage() {
     };
   }, [currentAccount, suiClient]);
 
-  useEffect(() => {
-    const run = async () => {
-      if (!currentAccount || !selectedTicket) return;
-      try {
-        const message = `TiX-One-Auth:${selectedTicket.objectId}`;
-        const messageBytes = new TextEncoder().encode(message);
-        const result = await signPersonalMessage({ message: messageBytes });
-        setSignature(result.signature);
-      } catch (e) {
-        console.error("[MyTicket] signature error", e);
-        setSignature(null);
-      }
-    };
-    run();
-  }, [currentAccount, selectedTicket, signPersonalMessage]);
-
   // ── Derived: has this concert already happened? ──────────────────────────
   const isPastEvent = useMemo(() => {
     if (!selectedConcert?.date) return false;
@@ -369,7 +350,7 @@ export default function MyTicketPage() {
 
   const qrData = useMemo(() => {
     if (!selectedTicket || !currentAccount) return "";
-    return JSON.stringify({ id: selectedTicket.objectId, owner: currentAccount.address });
+    return JSON.stringify({ ticketId: selectedTicket.objectId, owner: currentAccount.address });
   }, [selectedTicket, currentAccount]);
 
   const ticketIdDisplay = useMemo(() => {
@@ -591,7 +572,7 @@ export default function MyTicketPage() {
                         <QRCodeSVG
                           value={qrData}
                           size={470}
-                          level="H"
+                          level="M"
                           includeMargin={true}
                           bgColor="#FFFFFF"
                           fgColor="#0B0B0F"

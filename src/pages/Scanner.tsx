@@ -8,9 +8,11 @@ import {
 } from "@mysten/dapp-kit";
 import { Html5Qrcode } from "html5-qrcode";
 import { Transaction } from "@mysten/sui/transactions";
+import { verifyPersonalMessageSignature } from "@mysten/sui/verify";
 import { ArrowLeft, Camera } from "lucide-react";
 import { PopBackground } from "../components/PopBackground";
 import { ADMIN_CAP_ID, CLOCK_OBJECT_ID, PACKAGE_ID } from "../onechain/config";
+import { supabase } from "../lib/supabase";
 
 type TicketInfo = {
   eventName: string;
@@ -26,11 +28,13 @@ export default function ScannerPage() {
   const navigate = useNavigate();
 
   const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
+  const realtimeChannelRef = useRef<ReturnType<NonNullable<typeof supabase>["channel"]> | null>(null);
 
   const [isScanning, setIsScanning] = useState(false);
   const [scanResult, setScanResult] = useState<"granted" | "denied" | null>(null);
   const [ticketData, setTicketData] = useState<TicketInfo | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
+  const [waitingForApproval, setWaitingForApproval] = useState(false);
   const [error, setError] = useState<string>("");
 
   const [isOrganizer, setIsOrganizer] = useState(false);
@@ -108,23 +112,114 @@ export default function ScannerPage() {
     }
   };
 
-  const verifyTicket = async (qrData: string) => {
+  // Called after a successful QR scan. Inserts a pending check-in request
+  // and waits for the user to approve it via Supabase Realtime.
+  const handleScan = async (decodedText: string) => {
+    if (!currentAccount) return;
+    if (!supabase) {
+      setError("Supabase not configured");
+      setScanResult("denied");
+      return;
+    }
+
+    let ticketId: string;
+    let owner: string;
+    try {
+      const data = JSON.parse(decodedText);
+      ticketId = data.ticketId ?? data.id; // support both old and new QR format
+      owner = data.owner;
+      if (!ticketId || !owner) throw new Error("missing fields");
+    } catch {
+      setError("Invalid QR code format");
+      setScanResult("denied");
+      return;
+    }
+
+    // Insert a pending request row
+    console.log("[Scanner] inserting check_in_request for ticket", ticketId, "owner", owner);
+    const { data: row, error: insertError } = await supabase
+      .from("check_in_requests")
+      .insert({ ticket_id: ticketId, owner_address: owner, status: "pending" })
+      .select()
+      .single();
+
+    if (insertError || !row) {
+      console.error("[Scanner] insert failed", insertError);
+      setError("Failed to send check-in request: " + (insertError?.message ?? "unknown"));
+      setScanResult("denied");
+      return;
+    }
+    console.log("[Scanner] check_in_request inserted", row);
+
+    setWaitingForApproval(true);
+
+    // Timeout handle so we can cancel it if resolved early
+    let timeoutId: ReturnType<typeof setTimeout>;
+
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      if (realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+        realtimeChannelRef.current = null;
+      }
+      setWaitingForApproval(false);
+    };
+
+    const channel = supabase
+      .channel(`checkin:${row.id}`)
+      .on(
+        "postgres_changes",
+        {
+          event: "UPDATE",
+          schema: "public",
+          table: "check_in_requests",
+          filter: `id=eq.${row.id}`,
+        },
+        async (payload) => {
+          const updated = payload.new as { status: string; signature: string | null };
+          if (updated.status === "approved" && updated.signature) {
+            cleanup();
+            await verifyAndCheckIn(ticketId, owner, updated.signature);
+          } else if (updated.status === "denied") {
+            cleanup();
+            setError("User denied the check-in request");
+            setScanResult("denied");
+          }
+        }
+      )
+      .subscribe();
+
+    realtimeChannelRef.current = channel;
+
+    // Auto-expire after 2 minutes
+    timeoutId = setTimeout(() => {
+      cleanup();
+      setError("Approval timed out — rescan the ticket");
+      setScanResult("denied");
+    }, 120_000);
+  };
+
+  // Verifies the user's signature then executes the on-chain check-in.
+  const verifyAndCheckIn = async (ticketId: string, owner: string, signature: string) => {
     if (!currentAccount) return;
     setIsProcessing(true);
     setError("");
     try {
-      const data = JSON.parse(qrData);
-      const { id, owner } = data;
-      const objectId = id;
-
-      if (!objectId || !owner) {
-        setError("Invalid QR code format");
+      // 1. Cryptographically verify the signature
+      const publicKey = await verifyPersonalMessageSignature(
+        new TextEncoder().encode(ticketId),
+        signature
+      );
+      const signerAddress = publicKey.toSuiAddress();
+      if (signerAddress !== owner) {
+        setError("Signature address mismatch — possible ticket fraud");
         setScanResult("denied");
         return;
       }
 
+      // 2. Fetch ticket object from chain
       const ticketObject = await suiClient.getObject({
-        id: objectId,
+        id: ticketId,
         options: { showContent: true, showOwner: true },
       });
       if (!ticketObject.data) {
@@ -142,7 +237,17 @@ export default function ScannerPage() {
 
       const content: any = (ticketObject.data as any).content?.fields || {};
 
-      // Check for existing check-in record
+      // 3. Check expiry
+      const currentTime = Date.now();
+      const expiresAt = parseInt(content.expires_at);
+      if (currentTime >= expiresAt) {
+        setError("This ticket has expired");
+        setScanResult("denied");
+        setTicketData({ eventName: content.event_name, seat: content.seat, artist: content.artist });
+        return;
+      }
+
+      // 4. Check already checked in
       const checkInRecords = await suiClient.getOwnedObjects({
         owner: currentAccount.address,
         filter: { StructType: `${PACKAGE_ID}::ticket::CheckInRecord` },
@@ -150,33 +255,17 @@ export default function ScannerPage() {
       });
       const alreadyCheckedIn = checkInRecords.data?.some((record: any) => {
         const fields = record.data?.content?.fields;
-        return fields?.ticket_id === objectId;
+        return fields?.ticket_id === ticketId;
       });
       if (alreadyCheckedIn) {
         setError("This ticket has already been scanned");
         setScanResult("denied");
-        setTicketData({
-          eventName: content.event_name,
-          seat: content.seat,
-          artist: content.artist,
-        });
+        setTicketData({ eventName: content.event_name, seat: content.seat, artist: content.artist });
         return;
       }
 
-      const currentTime = Date.now();
-      const expiresAt = parseInt(content.expires_at);
-      if (currentTime >= expiresAt) {
-        setError("This ticket has expired");
-        setScanResult("denied");
-        setTicketData({
-          eventName: content.event_name,
-          seat: content.seat,
-          artist: content.artist,
-        });
-        return;
-      }
-
-      await checkInTicket(objectId, owner);
+      // 5. Execute on-chain check-in
+      await checkInTicket(ticketId, owner);
       setScanResult("granted");
       setTicketData({
         eventName: content.event_name,
@@ -216,12 +305,15 @@ export default function ScannerPage() {
       const html5QrCode = new Html5Qrcode("qr-reader");
       html5QrCodeRef.current = html5QrCode;
 
+      const viewportMin = Math.min(window.innerWidth, window.innerHeight);
+      const qrSize = Math.floor(viewportMin * 0.8);
+
       await html5QrCode.start(
         { facingMode: "environment" },
-        { fps: 10, qrbox: { width: 250, height: 250 }, aspectRatio: 1.0 },
+        { fps: 10, qrbox: { width: qrSize, height: qrSize }, aspectRatio: 1.7777778 },
         async (decodedText) => {
           await stopScanner();
-          await verifyTicket(decodedText);
+          await handleScan(decodedText);
         },
         (errorMessage) => {
           if (!errorMessage.includes("No MultiFormat Readers")) {
@@ -237,6 +329,12 @@ export default function ScannerPage() {
   };
 
   const resetScanner = () => {
+    // Clean up any lingering realtime subscription
+    if (supabase && realtimeChannelRef.current) {
+      supabase.removeChannel(realtimeChannelRef.current);
+      realtimeChannelRef.current = null;
+    }
+    setWaitingForApproval(false);
     setScanResult(null);
     setTicketData(null);
     setError("");
@@ -246,6 +344,9 @@ export default function ScannerPage() {
   useEffect(() => {
     return () => {
       html5QrCodeRef.current?.stop().catch(() => undefined);
+      if (supabase && realtimeChannelRef.current) {
+        supabase.removeChannel(realtimeChannelRef.current);
+      }
     };
   }, []);
 
@@ -323,7 +424,7 @@ export default function ScannerPage() {
 
             {isScanning && (
               <div className="bg-purple-900/30 backdrop-blur-md rounded-2xl p-4 border-2 border-pink-500/30 neon-border shadow-xl">
-                <div id="qr-reader" className="w-full" />
+                <div id="qr-reader" className="w-full overflow-hidden rounded-xl" />
                 <button
                   onClick={stopScanner}
                   className="mt-4 w-full bg-purple-900/50 border-2 border-pink-500/50 text-white py-3 px-6 rounded-xl hover:bg-purple-800/60 hover:border-pink-400 transition-all duration-200 neon-border"
@@ -333,9 +434,25 @@ export default function ScannerPage() {
               </div>
             )}
 
+            {waitingForApproval && !isProcessing && (
+              <div className="bg-purple-900/30 backdrop-blur-md rounded-2xl p-6 border-2 border-yellow-500/40 neon-border shadow-xl text-center">
+                <div className="flex justify-center mb-4">
+                  <div className="w-12 h-12 rounded-full border-4 border-yellow-400 border-t-transparent animate-spin" />
+                </div>
+                <h2 className="text-xl text-white neon-text mb-2">Waiting for Approval</h2>
+                <p className="text-yellow-200 text-sm">A check-in request was sent to the ticket holder's phone. Waiting for them to approve…</p>
+                <button
+                  onClick={resetScanner}
+                  className="mt-5 w-full bg-purple-900/50 border-2 border-yellow-500/40 text-white py-3 px-6 rounded-xl hover:bg-purple-800/60 transition-all duration-200"
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+
             {isProcessing && (
               <div className="bg-purple-900/30 backdrop-blur-md rounded-2xl p-6 border-2 border-pink-500/30 neon-border shadow-xl">
-                <p className="text-pink-200">Verifying ticket…</p>
+                <p className="text-pink-200">Verifying ticket on-chain…</p>
               </div>
             )}
 

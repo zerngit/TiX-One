@@ -398,6 +398,30 @@ html {
   filter: blur(2px);
 }
 
+/* ── html5-qrcode library overrides ─────────────────────────── */
+#qr-reader {
+  width: 100% !important;
+  border: none !important;
+  padding: 0 !important;
+}
+#qr-reader__scan_region {
+  min-height: unset !important;
+  background: transparent !important;
+}
+#qr-reader__scan_region video {
+  width: 100% !important;
+  height: auto !important;
+  object-fit: cover;
+  border-radius: 0.75rem;
+}
+#qr-reader__dashboard {
+  padding: 0 !important;
+}
+#qr-reader__dashboard_section_csr button {
+  display: none !important;
+}
+/* ──────────────────────────────────────────────────────────── */
+
 .pop-circle {
   border-radius: 50%;
   background: radial-gradient(circle, rgba(236, 72, 153, 0.8) 0%, rgba(168, 85, 247, 0.4) 100%);
