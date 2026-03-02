@@ -672,7 +672,15 @@ export default function MyTicketPage() {
                     <div className="mt-1 text-sm text-gray-300">
                       Create a Discord squad room linked to this Ticket ID.
                     </div>
-                    <div className="mt-4">
+                    <div className="mt-4 space-y-3">
+                      <button
+                        type="button"
+                        onClick={() => navigate("/squad-lobby", { state: { ticketId: selectedTicket?.objectId, concertName: selectedConcert?.title, concertId: selectedConcert?.id } })}
+                        className="w-full rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 border-none text-white py-3 px-5 hover:from-blue-500 hover:to-indigo-500 transition-colors font-bold shadow-[0_0_15px_rgba(59,130,246,0.4)]"
+                      >
+                        AI SquadMatching
+                      </button>
+
                       <button
                         type="button"
                         onClick={() => setIsSquadPopupOpen(true)}

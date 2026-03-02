@@ -359,6 +359,14 @@ export function useBuyTicket() {
     kioskId: string,
     kioskOwnerCapId: string,
   ) => {
+    // Debug log: invalid package IDs are the most common cause of TypeMismatch errors
+    console.log("[sellOrListTicket] Inputs (Check if package matches IDs):", { 
+      ticketObjectId, 
+      concertObjectId, 
+      waitlistObjectId, 
+      appPackageId: PACKAGE_ID 
+    });
+
     setBuyError("");
     setBuyDigest("");
     if (!currentAccount) { setBuyError("Connect OneWallet to continue."); return null; }
@@ -371,15 +379,34 @@ export function useBuyTicket() {
       const tx = new Transaction();
       tx.setSender(currentAccount.address);
       tx.setGasBudget(100_000_000);
+      
+      // Argument order must match Move: 
+      // public fun sell_or_list(
+      //    waitlist: &mut Waitlist,
+      //    ticket: Ticket,
+      //    concert: &Concert,
+      //    kiosk: &mut Kiosk,
+      //    cap: &KioskOwnerCap,
+      //    registry: &mut ListingRegistry,
+      //    ctx: &mut TxContext
+      // )
+
+      // The ERROR { arg_idx: 0, kind: TypeMismatch } likely means 'waitlistObjectId'
+      // passed here is NOT a valid Waitlist object, or is pointing to a different type.
+      // Another common cause is Ticket object passed as reference instead of by value.
+
+      // IMPORTANT: In sell_or_list, 'ticket' is passed by VALUE (Ticket), not reference (&Ticket).
+      // So use tx.object(ticketObjectId) for the ticket argument.
+      
       tx.moveCall({
         target: `${PACKAGE_ID}::ticket::sell_or_list`,
         arguments: [
-          tx.object(waitlistObjectId),
-          tx.object(ticketObjectId),
-          tx.object(concertObjectId),
-          tx.object(kioskId),
-          tx.object(kioskOwnerCapId),
-          tx.object(LISTING_REGISTRY_ID),
+          tx.object(waitlistObjectId),    // arg0: &mut Waitlist
+          tx.object(ticketObjectId),      // arg1: Ticket (by value)
+          tx.object(concertObjectId),     // arg2: &Concert
+          tx.object(kioskId),             // arg3: &mut Kiosk
+          tx.object(kioskOwnerCapId),     // arg4: &KioskOwnerCap
+          tx.object(LISTING_REGISTRY_ID), // arg5: &mut ListingRegistry
         ],
       });
       const result = await signAndExecuteTransaction({ transaction: tx });
