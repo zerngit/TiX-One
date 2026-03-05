@@ -5,10 +5,12 @@ require('dotenv').config();
 // Allow requiring TypeScript files directly from the frontend src folder
 require('ts-node').register({ transpileOnly: true });
 
+const categoryId=process.env.DISCORD_CATEGORY_ID;
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
+
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(
@@ -176,6 +178,7 @@ app.post('/api/create-squad', async (req, res) => {
     const channel = await guild.channels.create({
       name: baseName,
       type: ChannelType.GuildText,
+      parent:categoryId,
       topic,
       reason: `TiX-One create-squad for squadId=${squadId}`,
     });
@@ -271,7 +274,42 @@ app.post('/api/create-squad', async (req, res) => {
   }
 });
 
-// ─── (Squad matching handled by frontend via Supabase directly) ──────────────
+// ─── AI Squad Matching ────────────────────────────────────────────────────────
+app.post('/api/analyze-squads', async (req, res) => {
+  if (!genAI) {
+    return res.status(503).json({ error: 'AI service not available — GEMINI_API_KEY not set' });
+  }
+
+  const { vibeText, squads } = req.body;
+  if (!vibeText || !Array.isArray(squads)) {
+    return res.status(400).json({ error: 'vibeText (string) and squads (array) are required' });
+  }
+
+  try {
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+
+    const squadSummaries = squads
+      .map((sq) => `id:${sq.id} | name:${sq.name} | vibe:${sq.vibe}`)
+      .join('\n');
+
+    const prompt = `You are a concert squad matching assistant.\n\nUser's vibe: "${vibeText}"\n\nAvailable squads:\n${squadSummaries}\n\nAnalyze the user's vibe against every squad listed above. \nReturn a JSON array of ALL squads with the following fields:\n- id (string)\n- matchScore (integer 1-99)\n- reason (1 short sentence explaining the match, max 15 words)\n\nIMPORTANT: Return ONLY the JSON array. If you use quotes inside the "reason", you MUST escape them with a backslash (e.g. \\").`;
+
+    const result = await model.generateContent(prompt);
+    const rawText = result.response.text().trim();
+
+    const startBracket = rawText.indexOf('[');
+    const endBracket = rawText.lastIndexOf(']');
+    if (startBracket === -1 || endBracket === -1) {
+      throw new Error('AI did not return a valid JSON array');
+    }
+
+    const parsed = JSON.parse(rawText.substring(startBracket, endBracket + 1));
+    return res.json(parsed);
+  } catch (err) {
+    console.error('[ai] analyze-squads error:', err);
+    return res.status(500).json({ error: 'AI analysis failed', details: err.message });
+  }
+});
 
 const server = app.listen(PORT, () => {
   console.log(`[api] listening on http://localhost:${PORT}`);

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useLocation, useNavigate } from "react-router";
 import { useCurrentAccount } from "@mysten/dapp-kit";
-import { GoogleGenerativeAI } from "@google/generative-ai";
+
 import {
   ArrowLeft,
   ChevronRight,
@@ -137,46 +137,21 @@ export default function SquadMatchingLobby() {
     }
 
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string;
-      if (!apiKey) throw new Error("Missing VITE_GEMINI_API_KEY");
+      const backendUrl = import.meta.env.VITE_BACKEND_URL as string;
+      if (!backendUrl) throw new Error("Missing VITE_BACKEND_URL");
 
-      const genAI = new GoogleGenerativeAI(apiKey);
-      // Using gemini-1.5-flash for maximum JSON stability
-      const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
+      // 3. Call backend — Gemini API key stays server-side
+      const response = await fetch(`${backendUrl}/api/analyze-squads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vibeText,
+          squads: allSquads.map((sq) => ({ id: sq.id, name: sq.name, vibe: sq.vibe })),
+        }),
+      });
 
-      // Build a compact squad list for the AI to analyze
-      const squadSummaries = allSquads
-        .map((sq) => `id:${sq.id} | name:${sq.name} | vibe:${sq.vibe}`)
-        .join("\n");
-
-      const prompt = `You are a concert squad matching assistant.
-
-User's vibe: "${vibeText}"
-
-Available squads:
-${squadSummaries}
-
-Analyze the user's vibe against every squad listed above. 
-Return a JSON array of ALL squads with the following fields:
-- id (string)
-- matchScore (integer 1-99)
-- reason (1 short sentence explaining the match, max 15 words)
-
-IMPORTANT: Return ONLY the JSON array. If you use quotes inside the "reason", you MUST escape them with a backslash (e.g. \\").`;
-
-      const result = await model.generateContent(prompt);
-      const rawText = result.response.text().trim();
-
-      // 3. Robust JSON Extraction: Finds the array even if AI adds conversational text
-      const startBracket = rawText.indexOf('[');
-      const endBracket = rawText.lastIndexOf(']');
-      
-      if (startBracket === -1 || endBracket === -1) {
-        throw new Error("AI did not return a valid JSON array");
-      }
-
-      const jsonText = rawText.substring(startBracket, endBracket + 1);
-      const parsed: { id: string; matchScore: number; reason: string }[] = JSON.parse(jsonText);
+      if (!response.ok) throw new Error(`Backend error: ${response.status}`);
+      const parsed: { id: string; matchScore: number; reason: string }[] = await response.json();
 
       // 4. Merge Gemini scores back onto the full squad objects from state
       const scoreMap = new Map(parsed.map((p) => [p.id, p]));
