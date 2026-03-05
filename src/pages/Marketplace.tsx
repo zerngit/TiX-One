@@ -10,7 +10,6 @@ import { Transaction } from "@mysten/sui/transactions";
 import { ArrowLeft, Clock, Shield, ShoppingCart, Users } from "lucide-react";
 import { useConcerts } from "../hooks/useConcerts";
 import { PopBackground } from "../components/PopBackground";
-import DelbotVerification from "../components/DelbotVerification";
 import {
   ADMIN_CAP_ID,
   LISTING_REGISTRY_ID,
@@ -68,9 +67,6 @@ export default function MarketplacePage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [selectedTicketId, setSelectedTicketId] = useState<string>("");
-  const [showDelbot, setShowDelbot] = useState(false);
-  const [pendingListing, setPendingListing] = useState<Listing | null>(null);
-
   const formatAddress = (addr: string) =>
     addr ? `${addr.slice(0, 8)}...${addr.slice(-6)}` : "Unknown";
 
@@ -221,21 +217,10 @@ export default function MarketplacePage() {
       return;
     }
 
-    // Show Delbot verification first
-    setPendingListing(listing);
-    setShowDelbot(true);
+    await proceedWithPurchase(listing);
   };
 
-  const handleBotDetected = () => {
-    setShowDelbot(false);
-    setPendingListing(null);
-    navigate("/bot-detected");
-  };
-
-  const proceedWithPurchase = async () => {
-    setShowDelbot(false);
-    const listing = pendingListing;
-    setPendingListing(null);
+  const proceedWithPurchase = async (listing: Listing) => {
     if (!listing || !currentAccount) return;
 
     setIsPurchasing(true);
@@ -651,15 +636,7 @@ export default function MarketplacePage() {
         )}
       </div>
 
-      {/* Delbot Verification Modal */}
-      {showDelbot && (
-        <DelbotVerification
-          minDataPoints={50}
-          onHumanVerified={proceedWithPurchase}
-          onBotDetected={handleBotDetected}
-          onCancel={() => { setShowDelbot(false); setPendingListing(null); }}
-        />
-      )}
+
     </div>
   );
 }
