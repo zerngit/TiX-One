@@ -170,16 +170,20 @@ export default function SquadRoom() {
       <div className="fixed top-0 right-0 w-[500px] h-[500px] bg-purple-600/10 blur-[120px] rounded-full -mr-64 -mt-64 pointer-events-none" />
       <div className="fixed bottom-0 left-0 w-[500px] h-[500px] bg-pink-600/10 blur-[120px] rounded-full -ml-64 -mb-64 pointer-events-none" />
 
-      <div className="relative max-w-3xl mx-auto px-6 py-10 space-y-8">
+      {/* Top nav bar */}
+      <div className="relative border-b border-white/5 bg-black/20 backdrop-blur-xl px-6 py-4">
+        <div className="max-w-3xl mx-auto">
+          <button
+            onClick={() => navigate(-1)}
+            className="flex items-center gap-2 text-sm text-white/60 hover:text-white transition-colors group"
+          >
+            <ArrowLeft className="w-4 h-4 group-hover:-translate-x-0.5 transition-transform" />
+            Back to Lobby
+          </button>
+        </div>
+      </div>
 
-        {/* Back */}
-        <button
-          onClick={() => navigate(-1)}
-          className="flex items-center gap-2 text-sm text-white/50 hover:text-white transition-colors"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Back to Lobby
-        </button>
+      <div className="relative max-w-3xl mx-auto px-6 py-10 space-y-8">
 
         {/* Squad Header Card */}
         <motion.div
@@ -257,14 +261,14 @@ export default function SquadRoom() {
             <h2 className="font-display font-semibold text-lg text-white">Squad Members</h2>
           </div>
 
-          <div className="space-y-2">
+          <div className="space-y-3">
             {members.map((m) => (
               <div
                 key={m.id}
-                className="flex items-center gap-4 p-4 glass-card border-white/10 hover:bg-white/5 transition-colors"
+                className="flex items-center gap-4 p-4 rounded-2xl bg-[#1a1535] border border-purple-500/20 hover:border-purple-500/40 hover:bg-[#1f1a3d] transition-all"
               >
                 <div
-                  className={`w-10 h-10 rounded-xl bg-gradient-to-br ${getAvatarGradient(m.wallet)} flex items-center justify-center text-xs font-bold text-white shrink-0`}
+                  className={`w-11 h-11 rounded-xl bg-gradient-to-br ${getAvatarGradient(m.wallet)} flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-lg`}
                 >
                   {m.wallet.slice(2, 4).toUpperCase()}
                 </div>
@@ -281,9 +285,9 @@ export default function SquadRoom() {
                     <p className="text-xs text-white/40 truncate mt-0.5">{m.bio}</p>
                   )}
                 </div>
-                <div className="flex items-center gap-1.5 text-[10px] text-emerald-400/80">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  Online
+                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-xs font-medium text-emerald-300">Online</span>
                 </div>
               </div>
             ))}
@@ -304,11 +308,11 @@ export default function SquadRoom() {
         </motion.div>
 
         {/* Leave */}
-        <div className="flex justify-center pt-4">
+        <div className="flex justify-center pt-4 pb-6">
           <button
             onClick={handleLeave}
             disabled={leaving}
-            className="flex items-center gap-2 px-5 py-2.5 rounded-xl bg-red-500/10 border border-red-500/20 text-red-400 hover:bg-red-500/20 transition-colors text-sm font-medium disabled:opacity-50"
+            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-semibold text-sm shadow-lg shadow-red-900/40 transition-all active:scale-95 disabled:opacity-50"
           >
             {leaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
             {leaving ? "Leaving…" : "Leave Squad"}
