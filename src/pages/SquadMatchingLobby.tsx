@@ -1,0 +1,722 @@
+/*SquadMatchingLobby*/
+
+import { useEffect, useMemo, useState } from "react";
+import { useLocation, useNavigate } from "react-router";
+import { useCurrentAccount } from "@mysten/dapp-kit";
+
+import {
+  ArrowLeft,
+  ChevronRight,
+  Circle,
+  Compass,
+  Hash,
+  Loader2,
+  Search,
+  Sparkles,
+  Star,
+  Users,
+  UserPlus,
+  Wind,
+  Zap,
+} from "lucide-react";
+import { motion } from "motion/react";
+import { supabase } from "../lib/supabase";
+
+/* ─── Types ─── */
+interface Squad {
+  id: string;
+  name: string;
+  vibe: string;
+  concert_id: string;
+  max_members: number;
+  created_at: string;
+  member_count?: number;
+  members?: { wallet: string; bio: string }[];
+}
+
+interface MatchedSquad extends Squad {
+  matchScore: number;
+  reason: string;
+}
+
+/* ─── Page ─── */
+export default function SquadMatchingLobby() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const currentAccount = useCurrentAccount();
+
+  const { ticketId, concertName, concertId } = (location.state as any) || {};
+
+  const walletAddress = currentAccount?.address || "";
+
+  /* State */
+  const [vibeText, setVibeText] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
+  const [matched, setMatched] = useState<MatchedSquad[]>([]);
+  const [showMatches, setShowMatches] = useState(false);
+  const [showCreatePrompt, setShowCreatePrompt] = useState(false);
+  const [newSquadName, setNewSquadName] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+
+  const [allSquads, setAllSquads] = useState<Squad[]>([]);
+  const [loadingSquads, setLoadingSquads] = useState(true);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [joiningId, setJoiningId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+
+  const [selectedCategory, setSelectedCategory] = useState("All");
+  const categories = ["All", "High Energy", "Chill", "VIP", "First-Timer", "Creative"];
+
+  /* ── Fetch all squads ── */
+  const fetchSquads = async () => {
+    if (!supabase) return;
+    setLoadingSquads(true);
+    try {
+      let query = supabase.from("squads").select("*");
+      if (concertId) query = query.eq("concert_id", concertId);
+      const { data, error } = await query.order("created_at", { ascending: false });
+      if (error) throw error;
+
+      // Fetch member counts for each squad
+      const squadsWithMembers: Squad[] = [];
+      for (const sq of data || []) {
+        const { data: members } = await supabase
+          .from("squad_members")
+          .select("wallet, bio")
+          .eq("squad_id", sq.id);
+        squadsWithMembers.push({
+          ...sq,
+          member_count: members?.length || 0,
+          members: members || [],
+        });
+      }
+      setAllSquads(squadsWithMembers);
+    } catch (err) {
+      console.error("Failed to fetch squads:", err);
+    } finally {
+      setLoadingSquads(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchSquads();
+  }, [concertId]);
+
+  /* ── Filtered squads ── */
+  const filteredSquads = useMemo(() => {
+    let result = allSquads;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (s) =>
+          s.name.toLowerCase().includes(q) || s.vibe.toLowerCase().includes(q)
+      );
+    }
+    if (selectedCategory !== "All") {
+      const catLower = selectedCategory.toLowerCase();
+      result = result.filter((s) => s.vibe.toLowerCase().includes(catLower));
+    }
+    return result;
+  }, [allSquads, searchQuery, selectedCategory]);
+
+  /* ── AI Analyze (Gemini) ── */
+  const handleAnalyze = async () => {
+    // 1. Initial validation and state reset
+    if (!vibeText.trim() || !supabase) return;
+    setAnalyzing(true);
+    setShowMatches(false);
+    setShowCreatePrompt(false);
+
+    // 2. Empty Database Check: Skip AI entirely if no squads exist yet
+    if (allSquads.length === 0) {
+      setMatched([]);
+      setShowMatches(true);
+      setShowCreatePrompt(true);
+      setAnalyzing(false);
+      return;
+    }
+
+    try {
+      const backendUrl = import.meta.env.VITE_BACKEND_URL as string;
+      if (!backendUrl) throw new Error("Missing VITE_BACKEND_URL");
+
+      // 3. Call backend — Gemini API key stays server-side
+      const response = await fetch(`${backendUrl}/api/analyze-squads`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          vibeText,
+          squads: allSquads.map((sq) => ({ id: sq.id, name: sq.name, vibe: sq.vibe })),
+        }),
+      });
+
+      if (!response.ok) throw new Error(`Backend error: ${response.status}`);
+      const parsed: { id: string; matchScore: number; reason: string }[] = await response.json();
+
+      // 4. Merge Gemini scores back onto the full squad objects from state
+      const scoreMap = new Map(parsed.map((p) => [p.id, p]));
+      const scored: MatchedSquad[] = allSquads
+        .map((sq) => {
+          const gemini = scoreMap.get(sq.id);
+          return {
+            ...sq,
+            matchScore: gemini?.matchScore ?? 20,
+            reason: gemini?.reason ?? "Good overall match for your vibe!",
+          };
+        })
+        .sort((a, b) => b.matchScore - a.matchScore);
+
+      const top3 = scored.slice(0, 3);
+      setMatched(top3);
+      setShowMatches(true);
+
+      // 5. Low Match Fallback: If top match is weak, suggest creating a new squad
+      if (top3.length === 0 || top3[0].matchScore < 40) {
+        setShowCreatePrompt(true);
+      }
+    } catch (err) {
+      console.error("AI analysis error:", err);
+      // Friendly alert for demo stability
+      alert("AI matching had a small glitch. Please click Analyze again!");
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  /* ── Create Squad ── */
+  const handleCreateSquad = async () => {
+    if (!supabase || !walletAddress || !newSquadName.trim()) return;
+    setIsCreating(true);
+    try {
+      // Step A: Insert new squad into Supabase
+      const { data: squad, error } = await supabase
+        .from("squads")
+        .insert({ concert_id: concertId, name: newSquadName.trim(), vibe: vibeText, max_members: 5 })
+        .select()
+        .single();
+      if (error || !squad) throw error;
+
+      // Step B: Create Discord channel via backend
+      const backendUrl = import.meta.env.VITE_BACKEND_URL as string;
+      if (backendUrl) {
+        await fetch(`${backendUrl}/api/create-squad`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ squadId: squad.id, concertId, concertName }),
+        }).catch((e) => console.warn("[squad] Discord channel creation failed:", e));
+      }
+
+      // Step C: Add user as first member
+      await supabase.from("squad_members").insert({
+        squad_id: squad.id,
+        wallet: walletAddress,
+        bio: vibeText,
+      });
+
+      // Step D: Open Discord channel (invite_url written by backend)
+      const { data: fresh } = await supabase
+        .from("squads")
+        .select("invite_url")
+        .eq("id", squad.id)
+        .single();
+      if (fresh?.invite_url) {
+        window.open(fresh.invite_url, "_blank");
+      } else {
+        alert("Your Discord room is being set up — check back in a moment!");
+      }
+
+      // Step E: Navigate to squad room
+      navigate(`/squad/${squad.id}`, { state: { concertName, concertId } });
+    } catch (err) {
+      console.error("Create squad error:", err);
+      alert("Failed to create squad. Please try again.");
+    } finally {
+      setIsCreating(false);
+    }
+  };
+
+  /* ── Join Squad ── */
+  const handleJoinSquad = async (squadId: string) => {
+    if (!supabase || !walletAddress) return;
+    setJoiningId(squadId);
+    try {
+      // Check if already a member
+      const { data: existing } = await supabase
+        .from("squad_members")
+        .select("id")
+        .eq("squad_id", squadId)
+        .eq("wallet", walletAddress)
+        .maybeSingle();
+
+      if (existing) {
+        // Already a member — open Discord and go to room
+        const { data: squadData } = await supabase
+          .from("squads")
+          .select("invite_url")
+          .eq("id", squadId)
+          .single();
+        if (squadData?.invite_url) {
+          window.open(squadData.invite_url, "_blank");
+        }
+        navigate(`/squad/${squadId}`, {
+          state: { concertName, concertId },
+        });
+        return;
+      }
+
+      const { error } = await supabase.from("squad_members").insert({
+        squad_id: squadId,
+        wallet: walletAddress,
+        bio: vibeText || "",
+      });
+      if (error) throw error;
+
+      const { data: squadData } = await supabase
+        .from("squads")
+        .select("invite_url")
+        .eq("id", squadId)
+        .single();
+      if (squadData?.invite_url) {
+        window.open(squadData.invite_url, "_blank");
+      } else {
+        alert("Your Discord room is being set up — check back in a moment!");
+      }
+
+      navigate(`/squad/${squadId}`, {
+        state: { concertName, concertId },
+      });
+    } catch (err) {
+      console.error("Join error:", err);
+      alert("Failed to join squad");
+    } finally {
+      setJoiningId(null);
+    }
+  };
+
+  const shortenWallet = (w: string) =>
+    w.length > 12 ? `${w.slice(0, 6)}…${w.slice(-4)}` : w;
+
+  /* ── Pick icon & color for a squad based on vibe text ── */
+  const getSquadVisual = (vibe: string) => {
+    const v = vibe.toLowerCase();
+    if (v.includes("energy") || v.includes("bass") || v.includes("edm") || v.includes("mosh"))
+      return { icon: Zap, color: "text-blue-400" };
+    if (v.includes("chill") || v.includes("relax") || v.includes("calm") || v.includes("wave"))
+      return { icon: Wind, color: "text-emerald-400" };
+    if (v.includes("vip") || v.includes("premium") || v.includes("exclusive"))
+      return { icon: Star, color: "text-amber-400" };
+    if (v.includes("creative") || v.includes("art") || v.includes("neon") || v.includes("synth") || v.includes("dream"))
+      return { icon: Sparkles, color: "text-purple-400" };
+    if (v.includes("first") || v.includes("new") || v.includes("beginner"))
+      return { icon: UserPlus, color: "text-cyan-400" };
+    return { icon: Star, color: "text-pink-400" };
+  };
+
+  return (
+    <div className="flex min-h-screen font-sans selection:bg-purple-500/30">
+      {/* ═══ SIDEBAR ═══ */}
+      <aside className="hidden lg:flex w-64 shrink-0 flex-col border-r border-white/5 bg-black/20 backdrop-blur-xl sticky top-0 h-screen self-start">
+        {/* Brand */}
+        <div className="p-6 flex items-center gap-3">
+          <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center shadow-lg shadow-purple-500/20">
+            <Zap className="w-5 h-5 text-white fill-white" />
+          </div>
+          <div>
+            <h1 className="font-display font-bold text-sm tracking-tight text-white">TIX-One Squads</h1>
+            <p className="text-[10px] text-white/40 flex items-center gap-1">
+              <span className="w-1 h-1 rounded-full bg-emerald-400 animate-pulse" />
+              {allSquads.reduce((sum, s) => sum + (s.member_count || 0), 0)} Online
+            </p>
+          </div>
+        </div>
+
+        <nav className="flex-1 px-4 py-2 space-y-6 overflow-y-auto">
+          {/* Back */}
+          <div className="space-y-1">
+            <button
+              onClick={() => navigate(-1)}
+              className="w-full flex items-center gap-3 px-3 py-2 text-sm text-white/60 hover:text-white transition-colors"
+            >
+              <ArrowLeft className="w-4 h-4" />
+              Back to Ticket
+            </button>
+          </div>
+
+          {/* Explore */}
+          <div className="space-y-1">
+            <h2 className="px-3 text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Explore</h2>
+            <button className="w-full flex items-center gap-3 px-3 py-2.5 text-sm font-medium bg-white/10 text-white rounded-xl border border-white/10 shadow-inner">
+              <Compass className="w-4 h-4 text-purple-400" />
+              Squad Lobby
+            </button>
+          </div>
+
+          {/* Categories */}
+          <div className="space-y-1">
+            <h2 className="px-3 text-[10px] font-bold uppercase tracking-widest text-white/30 mb-2">Categories</h2>
+            {categories.map((cat) => (
+              <button
+                key={cat}
+                onClick={() => setSelectedCategory(cat)}
+                className={`w-full flex items-center gap-3 px-3 py-2 text-sm transition-all rounded-lg ${
+                  selectedCategory === cat
+                    ? "text-white bg-white/5"
+                    : "text-white/50 hover:text-white hover:bg-white/5"
+                }`}
+              >
+                <Hash className={`w-4 h-4 ${selectedCategory === cat ? "text-purple-400" : "text-white/20"}`} />
+                {cat}
+              </button>
+            ))}
+          </div>
+        </nav>
+
+        {/* User card */}
+        {walletAddress && (
+          <div className="p-4">
+            <div className="p-3 rounded-2xl bg-gradient-to-r from-purple-900/40 to-pink-900/40 border border-white/10 flex items-center gap-3">
+              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-pink-500 to-purple-600 flex items-center justify-center font-bold text-xs text-white">
+                {walletAddress.slice(2, 4).toUpperCase()}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs font-medium truncate text-white">{shortenWallet(walletAddress)}</p>
+                <p className="text-[10px] text-emerald-400 flex items-center gap-1">
+                  <Circle className="w-1.5 h-1.5 fill-current" /> Online
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+      </aside>
+
+      {/* ═══ MAIN CONTENT ═══ */}
+      <main className="flex-1 min-w-0 p-8 lg:p-12">
+        <div className="max-w-4xl mx-auto space-y-12">
+
+          {/* Header */}
+          <header className="text-center space-y-2">
+            <motion.h2
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="font-display font-bold text-4xl tracking-tight text-white"
+            >
+              Find Your Squad
+            </motion.h2>
+            <div className="flex items-center justify-center gap-4 text-white/40">
+              <div className="h-px w-12 bg-gradient-to-r from-transparent to-white/20" />
+              <div className="flex items-center gap-2">
+                <Wind className="w-4 h-4" />
+                <span className="text-xs font-medium uppercase tracking-widest">
+                  {concertName || "Concert"} Lobby
+                </span>
+                <Wind className="w-4 h-4 rotate-180" />
+              </div>
+              <div className="h-px w-12 bg-gradient-to-l from-transparent to-white/20" />
+            </div>
+          </header>
+
+          {/* ── AI Hero / Vibe Input ── */}
+          <motion.section
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="relative group"
+          >
+            <div className="absolute -inset-0.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-3xl blur opacity-20 group-hover:opacity-40 transition duration-1000 group-hover:duration-200" />
+            <div className="relative glass-card p-8 border-white/20">
+              <div className="flex items-center gap-3 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center">
+                  <Sparkles className="w-4 h-4 text-purple-400" />
+                </div>
+                <div>
+                  <h3 className="font-display font-semibold text-lg text-white">What's Your Vibe?</h3>
+                  <p className="text-xs text-white/50">Tell us your sound-soul, and our AI matches you with the perfect squad!</p>
+                </div>
+              </div>
+
+              <div className="relative">
+                <textarea
+                  value={vibeText}
+                  onChange={(e) => setVibeText(e.target.value)}
+                  maxLength={300}
+                  placeholder="e.g., I'm a front-row EDM fanatic who loves bass drops and dancing all night! 🎵🔥"
+                  className="w-full h-32 bg-black/40 border border-white/10 rounded-2xl p-4 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-purple-500/50 transition-all resize-none"
+                />
+                <div className="absolute bottom-4 right-4 flex items-center gap-4">
+                  <span className="text-[10px] text-white/30 font-mono">{vibeText.length}/300</span>
+                  <button
+                    onClick={handleAnalyze}
+                    disabled={analyzing || !vibeText.trim()}
+                    className="px-6 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-xl text-xs font-bold flex items-center gap-2 shadow-lg shadow-purple-500/20 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed text-white"
+                  >
+                    {analyzing ? (
+                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Sparkles className="w-3.5 h-3.5" />
+                    )}
+                    {analyzing ? "Analyzing…" : "AI Analyze"}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </motion.section>
+
+          {/* ── AI Match Results ── */}
+          {showMatches && matched.length > 0 && (
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-4"
+            >
+              <div className="flex items-center gap-2">
+                <Star className="w-5 h-5 text-yellow-400" />
+                <h3 className="font-display font-semibold text-xl text-white">Top 3 Matches For You</h3>
+              </div>
+              <div className="space-y-3">
+                {matched.map((sq, idx) => {
+                  const { icon: SqIcon, color } = getSquadVisual(sq.vibe);
+                  return (
+                    <motion.div
+                      key={sq.id}
+                      whileHover={{ x: 4 }}
+                      className="group relative flex items-center gap-6 p-5 glass-card hover:bg-white/10 transition-all cursor-pointer overflow-hidden"
+                    >
+                      {/* Waveform */}
+                      <div className="absolute right-0 top-0 h-full w-1/3 opacity-10 pointer-events-none">
+                        <svg viewBox="0 0 100 100" className="h-full w-full">
+                          <path d="M0 50 Q 25 20 50 50 T 100 50" fill="none" stroke="currentColor" strokeWidth="2" className={color} />
+                        </svg>
+                      </div>
+
+                      {/* Rank badge instead of icon */}
+                      <div
+                        className={`w-14 h-14 rounded-full flex items-center justify-center border-2 border-white/10 shadow-lg bg-black/40 font-black text-xl ${
+                          idx === 0 ? "text-yellow-400" : idx === 1 ? "text-gray-300" : "text-orange-400"
+                        }`}
+                      >
+                        #{idx + 1}
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <div className="flex items-center gap-2">
+                            <h4 className="font-display font-bold text-base text-white">{sq.name}</h4>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                                sq.matchScore >= 80
+                                  ? "bg-green-500/20 text-green-300 border border-green-500/30"
+                                  : sq.matchScore >= 60
+                                  ? "bg-yellow-500/20 text-yellow-300 border border-yellow-500/30"
+                                  : "bg-violet-500/20 text-violet-300 border border-violet-500/30"
+                              }`}
+                            >
+                              {sq.matchScore}% match
+                            </span>
+                          </div>
+                          <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-white/50 transition-colors" />
+                        </div>
+                        <p className="text-xs text-white/50 line-clamp-1 mb-1">{sq.vibe}</p>
+                        <p className="text-xs text-violet-200/50 italic mb-2">"{sq.reason}"</p>
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-1.5 text-[10px] text-white/40">
+                            <Users className="w-3 h-3" />
+                            <span>{sq.member_count || 0}/{sq.max_members} members</span>
+                          </div>
+                          {(sq.member_count || 0) > 0 && (
+                            <div className="flex items-center gap-1.5 text-[10px] text-emerald-400/80">
+                              <span className="w-1 h-1 rounded-full bg-current" />
+                              <span>{sq.member_count} online</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={() => handleJoinSquad(sq.id)}
+                        disabled={joiningId === sq.id}
+                        className="shrink-0 px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border border-white/10 rounded-xl text-sm font-bold transition-all text-white shadow-lg shadow-purple-500/20 disabled:opacity-50 flex items-center gap-2"
+                      >
+                        {joiningId === sq.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <UserPlus className="w-3.5 h-3.5" />
+                        )}
+                        Join
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </motion.section>
+          )}
+
+          {/* ── Create Your Own Squad card ── */}
+          {showMatches && showCreatePrompt && (
+            <motion.section
+              initial={{ opacity: 0, y: 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="space-y-4"
+            >
+              <div className="flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-pink-400" />
+                <h3 className="font-display font-semibold text-xl text-white">
+                  {matched.length === 0 ? "Be the First! Create a Squad" : "No Perfect Match? Start Your Own"}
+                </h3>
+              </div>
+              <div className="relative group">
+                <div className="absolute -inset-0.5 bg-gradient-to-r from-pink-500 to-purple-500 rounded-3xl blur opacity-20 group-hover:opacity-40 transition duration-700" />
+                <div className="relative glass-card p-6 border-pink-500/20 space-y-4">
+                  <p className="text-sm text-white/60">
+                    {matched.length === 0
+                      ? "You're the first fan here! Name your squad and set the vibe for everyone who follows."
+                      : "None of the existing squads felt right? Create your own and let others find you."}
+                  </p>
+                  <div className="flex gap-3">
+                    <input
+                      type="text"
+                      value={newSquadName}
+                      onChange={(e) => setNewSquadName(e.target.value)}
+                      maxLength={50}
+                      placeholder="e.g., Front Row Fanatics 🔥"
+                      className="flex-1 bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-sm text-white placeholder:text-white/20 focus:outline-none focus:border-pink-500/50 transition-all"
+                    />
+                    <button
+                      onClick={handleCreateSquad}
+                      disabled={isCreating || !newSquadName.trim()}
+                      className="px-6 py-3 bg-gradient-to-r from-pink-600 to-purple-600 hover:from-pink-500 hover:to-purple-500 rounded-xl text-sm font-bold text-white shadow-lg shadow-pink-500/20 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2 whitespace-nowrap"
+                    >
+                      {isCreating ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <UserPlus className="w-4 h-4" />
+                      )}
+                      {isCreating ? "Creating…" : "Create & Join"}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </motion.section>
+          )}
+
+          {/* ── Browse All Squads ── */}
+          <section className="space-y-6">
+            <div className="space-y-4">
+              <div className="flex items-center gap-3">
+                <Users className="w-5 h-5 text-purple-400" />
+                <h3 className="font-display font-semibold text-xl text-white">Browse All Squads</h3>
+              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search squads..."
+                className="w-full rounded-xl py-3 pl-14 pr-5 text-sm text-white placeholder:text-white/30 focus:outline-none transition-all"
+    style={{
+      paddingLeft: "28px",
+      backgroundColor: "rgba(255, 255, 255, 0.08)", // Lightened background for visibility
+      border: "1px solid rgba(255, 255, 255, 0.2)", // Crisp white-transparent border
+      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)"    // Shadow to create physical separation
+    }}
+              />
+            </div>
+
+            {/* Filters */}
+            <div className="flex gap-2 overflow-x-auto pb-2 no-scrollbar">
+              {categories.map((filter) => (
+                <button
+                  key={filter}
+                  onClick={() => setSelectedCategory(filter)}
+                  className={`px-4 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-all ${
+                    selectedCategory === filter
+                      ? "bg-purple-500 text-white shadow-lg shadow-purple-500/20"
+                      : "bg-white/5 text-white/40 hover:bg-white/10 hover:text-white"
+                  }`}
+                >
+                  {filter}
+                </button>
+              ))}
+            </div>
+
+            {/* Squad Cards */}
+            {loadingSquads ? (
+              <div className="flex items-center justify-center py-16">
+                <Loader2 className="w-8 h-8 animate-spin text-violet-400" />
+              </div>
+            ) : filteredSquads.length === 0 ? (
+              <div className="text-center py-16">
+                <Users className="w-12 h-12 text-purple-500/30 mx-auto mb-3" />
+                <p className="text-white/40 text-sm">No squads found</p>
+              </div>
+            ) : (
+              <div className="space-y-4 max-h-[600px] overflow-y-auto pr-2 custom-scrollbar">
+                {filteredSquads.map((sq) => {
+                  const { icon: SqIcon, color } = getSquadVisual(sq.vibe);
+                  return (
+                    <motion.div
+                      key={sq.id}
+                      whileHover={{ x: 4 }}
+                      className="group relative flex items-center gap-6 p-5 glass-card hover:bg-white/10 transition-all cursor-pointer overflow-hidden"
+                      onClick={() => handleJoinSquad(sq.id)}
+                    >
+                      {/* Background waveform */}
+                      <div className="absolute right-0 top-0 h-full w-1/3 opacity-10 pointer-events-none">
+                        <svg viewBox="0 0 100 100" className="h-full w-full">
+                          <path d="M0 50 Q 25 20 50 50 T 100 50" fill="none" stroke="currentColor" strokeWidth="2" className={color} />
+                        </svg>
+                      </div>
+
+                      <div className={`w-14 h-14 rounded-full flex items-center justify-center border-2 border-white/10 shadow-lg ${color} bg-black/40`}>
+                        <SqIcon className="w-6 h-6" />
+                      </div>
+
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between mb-1">
+                          <h4 className="font-display font-bold text-base text-white">{sq.name}</h4>
+                          <ChevronRight className="w-4 h-4 text-white/20 group-hover:text-white/50 transition-colors" />
+                        </div>
+                        <p className="text-xs text-white/50 line-clamp-1 mb-3">{sq.vibe}</p>
+
+                        <div className="flex items-center gap-4">
+                          <div className="flex items-center gap-1.5 text-[10px] text-white/40">
+                            <Users className="w-3 h-3" />
+                            <span>{sq.member_count || 0}/{sq.max_members} members</span>
+                          </div>
+                          {(sq.member_count || 0) > 0 && (
+                            <div className="flex items-center gap-1.5 text-[10px] text-emerald-400/80">
+                              <span className="w-1 h-1 rounded-full bg-current" />
+                              <span>{sq.member_count} online</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleJoinSquad(sq.id);
+                        }}
+                        disabled={joiningId === sq.id || (sq.member_count || 0) >= sq.max_members}
+                        className="shrink-0 px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border border-white/10 rounded-xl text-sm font-bold transition-all text-white shadow-lg shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
+                      >
+                        {joiningId === sq.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (sq.member_count || 0) >= sq.max_members ? (
+                          "Full"
+                        ) : (
+                          "Join"
+                        )}
+                      </button>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </div>
+      </main>
+
+      {/* Decorative background blurs */}
+      <div className="fixed top-0 right-0 w-[500px] h-[500px] bg-purple-600/10 blur-[120px] rounded-full -mr-64 -mt-64 pointer-events-none" />
+      <div className="fixed bottom-0 left-0 w-[500px] h-[500px] bg-pink-600/10 blur-[120px] rounded-full -ml-64 -mb-64 pointer-events-none" />
+    </div>
+  );
+}

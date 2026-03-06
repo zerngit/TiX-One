@@ -16,9 +16,9 @@ import {
   MapPin,
   DollarSign,
   CheckCircle2,
+  Users,
 } from "lucide-react";
 import { concerts } from "../data/concerts";
-import { AiSquadPopup } from "../components/AiSquadPopup";
 import {
   KIOSK_OWNER_CAP_TYPE,
   LISTING_REGISTRY_ID,
@@ -97,7 +97,6 @@ export default function MyTicketPage() {
   const [kioskId, setKioskId] = useState<string>("");
   const [kioskOwnerCapId, setKioskOwnerCapId] = useState<string>("");
   const [isCreatingKiosk, setIsCreatingKiosk] = useState(false);
-  const [isSquadPopupOpen, setIsSquadPopupOpen] = useState(false);
 
   const [listingStatusByTicketId, setListingStatusByTicketId] = useState<
     Record<string, "none" | "public">
@@ -670,15 +669,16 @@ export default function MyTicketPage() {
                   <div className="mt-14 rounded-2xl border border-pink-500/20 bg-purple-950/50 backdrop-blur-md p-5 shadow-xl">
                     <div className="text-sm font-bold text-white drop-shadow-md">Squad Room</div>
                     <div className="mt-1 text-sm text-gray-300">
-                      Create a Discord squad room linked to this Ticket ID.
+                      Let AI match you with fans who share your concert vibe. Join or create a private Discord squad room.
                     </div>
                     <div className="mt-4">
                       <button
                         type="button"
-                        onClick={() => setIsSquadPopupOpen(true)}
-                        className="w-full rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 border-none text-white py-3 px-5 hover:from-pink-500 hover:to-purple-500 transition-colors font-bold shadow-[0_0_15px_rgba(236,72,153,0.4)]"
+                        onClick={() => navigate("/squad-lobby", { state: { ticketId: selectedTicket?.objectId, concertName: selectedConcert?.title, concertId: selectedConcert?.id } })}
+                        className="w-full rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 border-none text-white py-3 px-5 hover:from-pink-500 hover:to-purple-500 transition-colors font-bold shadow-[0_0_15px_rgba(236,72,153,0.4)] flex items-center justify-center gap-2"
                       >
-                        Match Me with a Squad
+                        <Users className="w-5 h-5" />
+                        Find Your Squad
                       </button>
                     </div>
                   </div>
@@ -753,15 +753,6 @@ export default function MyTicketPage() {
           </>
         )}
       </div>
-
-      <AiSquadPopup
-        isOpen={isSquadPopupOpen}
-        onClose={() => setIsSquadPopupOpen(false)}
-        ticketId={selectedTicket?.objectId || ""}
-        concertName={selectedConcert?.title || selectedTicket?.event_name || "Concert"}
-        concertId={selectedConcert?.id || ""}
-      />
-
     </div>
   );
 }

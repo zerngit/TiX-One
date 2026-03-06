@@ -8,6 +8,12 @@ const withDefaults = (c: any): SupabaseConcert => ({
   waitlist_object_id: c.waitlist_object_id ?? null,
 })
 
+const sortByDateTime = (list: SupabaseConcert[]) =>
+  [...list].sort((a, b) => {
+    const toMs = (c: SupabaseConcert) => new Date(`${c.date} ${c.time}`).getTime()
+    return toMs(a) - toMs(b)
+  })
+
 export function useConcerts() {
   const [concerts, setConcerts] = useState<SupabaseConcert[]>([])
   const [loading, setLoading] = useState(true)
@@ -26,9 +32,9 @@ export function useConcerts() {
       .then(({ data, error }: { data: any[] | null; error: any }) => {
         if (error || !data || data.length === 0) {
           console.warn('[useConcerts] Supabase fetch failed, using static data:', error?.message)
-          setConcerts(staticConcerts.map(withDefaults))
+          setConcerts(sortByDateTime(staticConcerts.map(withDefaults)))
         } else {
-          setConcerts((data as any[]).map(withDefaults))
+          setConcerts(sortByDateTime((data as any[]).map(withDefaults)))
         }
         setLoading(false)
       })

@@ -5,11 +5,18 @@ require('dotenv').config();
 // Allow requiring TypeScript files directly from the frontend src folder
 require('ts-node').register({ transpileOnly: true });
 
+const categoryId=process.env.DISCORD_CATEGORY_ID;
 const fs = require('fs');
 const path = require('path');
 const express = require('express');
 const cors = require('cors');
-const { createHmac, createPrivateKey, sign: cryptoSign } = require('crypto');
+
+const { createClient } = require('@supabase/supabase-js');
+
+const supabase = createClient(
+  process.env.SUPABASE_URL,
+  process.env.SUPABASE_ANON_KEY,
+);
 const {
   Client,
   GatewayIntentBits,
@@ -144,63 +151,36 @@ async function getGuildOrThrow() {
   return guild;
 }
 
-async function findExistingSquadChannel(guild, concertId) {
-  const channels = await guild.channels.fetch();
-  const needle = `ConcertID: ${concertId}`;
-
-  for (const channel of channels.values()) {
-    if (!channel) continue;
-    if (channel.type !== ChannelType.GuildText) continue;
-    if (typeof channel.topic !== 'string') continue;
-    if (channel.topic.includes(needle)) return channel;
-  }
-
-  return null;
-}
-
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
 app.post('/api/create-squad', async (req, res) => {
   try {
-    const { ticketId, concertName, concertId } = req.body || {};
+    const { squadId, concertId, concertName } = req.body || {};
 
-    if (!ticketId || !concertName) {
+    if (!squadId || !concertId || !concertName) {
       return res.status(400).json({
-        error: 'Missing required fields: ticketId, concertName',
+        error: 'Missing required fields: squadId, concertId, concertName',
       });
     }
 
     const guild = await getGuildOrThrow();
 
-    // Reuse existing squad channel for the same concert if it already exists.
-    const existing = concertId ? await findExistingSquadChannel(guild, concertId) : null;
-    if (existing) {
-      const invite = await existing.createInvite({
-        maxAge: 0,
-        maxUses: 0,
-        unique: true,
-        reason: 'TiX-One squad invite (reuse existing channel)',
-      });
-
-      return res.json({ inviteUrl: invite.url, channelId: existing.id });
-    }
-
-    const concertSlug = slugifyChannelPart(concertName);
-    const concertIdSlug = slugifyChannelPart(concertId || 'x');
-
-    let baseName = `squad-${concertIdSlug}-${concertSlug || 'concert'}`;
+    // Every squad gets its own unique private channel — no reuse.
+    const squadSlug = slugifyChannelPart(squadId).slice(0, 8);
+    let baseName = `squad-${squadSlug}`;
     if (baseName.length > 90) baseName = baseName.slice(0, 90);
 
-    const topic = `TiX-One Squad Room — Concert: ${concertName} | ConcertID: ${concertId || ''} | TiX-One Ticket ID: ${ticketId}`;
+    const topic = `TiX-One VIP Squad Room | SquadID: ${squadId} | ConcertID: ${concertId}`;
 
     // Create the channel.
     const channel = await guild.channels.create({
       name: baseName,
       type: ChannelType.GuildText,
+      parent:categoryId,
       topic,
-      reason: `TiX-One create-squad for ticketId=${ticketId}`,
+      reason: `TiX-One create-squad for squadId=${squadId}`,
     });
 
     // Optional: ensure the bot can create invites and send messages.
@@ -240,7 +220,7 @@ app.post('/api/create-squad', async (req, res) => {
           // The "Invisible Trigger" telling the AI to speak first
           const initialPrompt = `${systemInstruction}\n\n=== CHAT HISTORY ===\nSystem: A new squad room was just created. The first human ticket holder has entered the room, but hasn't spoken yet. You are the AI Concierge. Speak first! Welcome them to the ${concert.title} squad, hype them up, and ask a fun icebreaker question to find out their concert vibe.\n\nConcierge (You):`;
 
-          const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+          const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
           const result = await model.generateContent(initialPrompt);
           const reply = result.response.text().trim();
 
@@ -269,6 +249,12 @@ app.post('/api/create-squad', async (req, res) => {
       reason: 'TiX-One squad invite',
     });
 
+    // Write the Discord channel ID back to the squads row in Supabase
+    await supabase
+      .from('squads')
+      .update({ discord_channel_id: channel.id, invite_url: invite.url })
+      .eq('id', squadId);
+
     return res.json({ inviteUrl: invite.url, channelId: channel.id });
   } catch (err) {
     console.error('[api] /api/create-squad failed', err);
@@ -288,309 +274,45 @@ app.post('/api/create-squad', async (req, res) => {
   }
 });
 
-// ─── SPOTIFY OAUTH & FAN SCORING ────────────────────────────────────────────
-// 50/40/10 scoring: long-term top artists (50) + track variety (40) + recent plays (10)
-// Resistant to Sybil attacks — all signals require multi-year genuine listening history.
-
-const SPOTIFY_CLIENT_ID     = process.env.SPOTIFY_CLIENT_ID;
-const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
-const SPOTIFY_REDIRECT_URI  = process.env.SPOTIFY_REDIRECT_URI;
-const FRONTEND_URL          = process.env.FRONTEND_URL || 'http://127.0.0.1:3000';
-
-const SPOTIFY_SCOPES = 'user-top-read user-read-recently-played';
-
-// ── Ed25519 fan-purchase signing ─────────────────────────────────────────────
-const BACKEND_ED25519_PRIVATE_KEY = process.env.BACKEND_ED25519_PRIVATE_KEY;
-const BACKEND_ED25519_PUBLIC_KEY  = process.env.BACKEND_ED25519_PUBLIC_KEY;
-const FAN_TOKEN_HMAC_SECRET = process.env.FAN_TOKEN_HMAC_SECRET || 'dev-hmac-secret-change-me';
-
-if (!BACKEND_ED25519_PRIVATE_KEY || !BACKEND_ED25519_PUBLIC_KEY) {
-  console.warn('[crypto] BACKEND_ED25519_PRIVATE_KEY / PUBLIC_KEY not set — run scripts/3-init-verifier.sh');
-}
-if (FAN_TOKEN_HMAC_SECRET === 'dev-hmac-secret-change-me') {
-  console.warn('[crypto] FAN_TOKEN_HMAC_SECRET is using default — run scripts/3-init-verifier.sh');
-}
-
-/** Load the Ed25519 private key from raw seed hex stored in .env */
-function getEd25519PrivateKey() {
-  if (!BACKEND_ED25519_PRIVATE_KEY || !BACKEND_ED25519_PUBLIC_KEY) return null;
-  return createPrivateKey({
-    key: {
-      kty: 'OKP',
-      crv: 'Ed25519',
-      d: Buffer.from(BACKEND_ED25519_PRIVATE_KEY, 'hex').toString('base64url'),
-      x: Buffer.from(BACKEND_ED25519_PUBLIC_KEY,  'hex').toString('base64url'),
-    },
-    format: 'jwk',
-  });
-}
-
-/**
- * Sign a fan-purchase message: wallet_bytes (32) || concert_object_id_bytes (32)
- * Returns a 64-byte Buffer (Ed25519 signature).
- */
-function signFanPurchase(walletAddress, concertObjectId) {
-  const key = getEd25519PrivateKey();
-  if (!key) throw new Error('Ed25519 signing key not configured. Run scripts/3-init-verifier.sh.');
-  const walletBytes  = Buffer.from(walletAddress.replace(/^0x/, ''), 'hex');
-  const concertBytes = Buffer.from(concertObjectId.replace(/^0x/, ''), 'hex');
-  const msg = Buffer.concat([walletBytes, concertBytes]);
-  return cryptoSign(null, msg, key); // 64-byte Ed25519 signature
-}
-
-/**
- * Create a short-lived HMAC fan-approval token.
- * Payload: "eventId:score:expiresAtMs"
- * Token:   base64url(payload + "." + hmac(payload))
- */
-function createFanToken(eventId, score) {
-  const exp     = Date.now() + 10 * 60 * 1000; // 10 minutes
-  const payload = `${eventId}:${score}:${exp}`;
-  const hmac    = createHmac('sha256', FAN_TOKEN_HMAC_SECRET).update(payload).digest('hex');
-  return Buffer.from(`${payload}.${hmac}`).toString('base64url');
-}
-
-/**
- * Verify a fan-approval token. Returns { eventId, score } or null if invalid/expired.
- */
-function verifyFanToken(token) {
-  try {
-    const decoded        = Buffer.from(String(token), 'base64url').toString('utf8');
-    const lastDot        = decoded.lastIndexOf('.');
-    const payload        = decoded.slice(0, lastDot);
-    const receivedHmac   = decoded.slice(lastDot + 1);
-    const expectedHmac   = createHmac('sha256', FAN_TOKEN_HMAC_SECRET).update(payload).digest('hex');
-    if (receivedHmac !== expectedHmac) return null;
-    const [eventId, scoreStr, expStr] = payload.split(':');
-    if (Date.now() > parseInt(expStr, 10)) return null;
-    return { eventId, score: parseInt(scoreStr, 10) };
-  } catch {
-    return null;
-  }
-}
-
-// ── Dynamic concert list — fetched from Supabase, cached for 5 minutes ───────
-const SUPABASE_URL      = process.env.SUPABASE_URL;
-const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
-
-// Static fallback (used when Supabase is unreachable)
-const CONCERTS_FALLBACK = concerts.map((c) => ({ id: c.id, artist: c.artist }));
-
-let _concertsCache     = null;
-let _concertsCacheTime = 0;
-const CACHE_TTL_MS     = 5 * 60 * 1000; // 5 minutes
-
-async function getConcerts() {
-  if (_concertsCache && Date.now() - _concertsCacheTime < CACHE_TTL_MS) {
-    return _concertsCache;
-  }
-  if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
-    console.warn('[concerts] SUPABASE_URL/SUPABASE_ANON_KEY not set — using static fallback');
-    return CONCERTS_FALLBACK;
-  }
-  try {
-    const res = await axios.get(`${SUPABASE_URL}/rest/v1/concerts`, {
-      params: { select: 'id,artist', order: 'id.asc' },
-      headers: {
-        apikey:        SUPABASE_ANON_KEY,
-        Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-      },
-    });
-    const data = res.data;
-    if (!Array.isArray(data) || data.length === 0) throw new Error('empty response');
-    _concertsCache     = data.map((c) => ({ id: String(c.id), artist: c.artist }));
-    _concertsCacheTime = Date.now();
-    console.log(`[concerts] loaded ${_concertsCache.length} concerts from Supabase`);
-    return _concertsCache;
-  } catch (err) {
-    console.warn('[concerts] Supabase fetch failed, using static fallback:', err?.message);
-    return CONCERTS_FALLBACK;
-  }
-}
-
-/**
- * GET /auth-url?eventId=1&artistName=Jay+Chou
- * Returns the Spotify OAuth URL. State encodes eventId|artistName.
- */
-app.get('/auth-url', (req, res) => {
-  const { eventId, artistName } = req.query;
-  if (!eventId || !artistName) {
-    return res.status(400).json({ error: 'Missing eventId or artistName' });
-  }
-  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_REDIRECT_URI) {
-    return res.status(500).json({ error: 'Spotify credentials not configured' });
-  }
-  const state = `${eventId}|${encodeURIComponent(artistName)}`;
-  const url =
-    `https://accounts.spotify.com/authorize` +
-    `?client_id=${SPOTIFY_CLIENT_ID}` +
-    `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT_URI)}` +
-    `&scope=${encodeURIComponent(SPOTIFY_SCOPES)}` +
-    `&state=${encodeURIComponent(state)}`;
-  res.json({ url });
-});
-
-/**
- * GET /auth-url-global
- * Returns Spotify OAuth URL for global fan-check (all concerts at once).
- */
-app.get('/auth-url-global', (req, res) => {
-  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_REDIRECT_URI) {
-    return res.status(500).json({ error: 'Spotify credentials not configured' });
-  }
-  const url =
-    `https://accounts.spotify.com/authorize` +
-    `?client_id=${SPOTIFY_CLIENT_ID}` +
-    `&response_type=code` +
-    `&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT_URI)}` +
-    `&scope=${encodeURIComponent(SPOTIFY_SCOPES)}` +
-    `&state=global`;
-  res.json({ url });
-});
-
-/**
- * GET /sign-fan-purchase?wallet=0x...&concertObjectId=0x...&fanToken=...
- * Verifies the HMAC fan token, then returns an Ed25519 signature
- * over (wallet_bytes || concert_object_id_bytes) for use in buy_verified_fan_ticket.
- */
-app.get('/sign-fan-purchase', (req, res) => {
-  const { wallet, concertObjectId, fanToken } = req.query;
-
-  if (!wallet || !concertObjectId || !fanToken) {
-    return res.status(400).json({ error: 'Missing wallet, concertObjectId, or fanToken' });
+// ─── AI Squad Matching ────────────────────────────────────────────────────────
+app.post('/api/analyze-squads', async (req, res) => {
+  if (!genAI) {
+    return res.status(503).json({ error: 'AI service not available — GEMINI_API_KEY not set' });
   }
 
-  const tokenData = verifyFanToken(fanToken);
-  if (!tokenData) {
-    return res.status(403).json({ error: 'Fan token is invalid or expired. Please re-verify via Spotify.' });
-  }
-  if (tokenData.score < 60) {
-    return res.status(403).json({ error: `Fan score ${tokenData.score}/100 is below the 60-point threshold.` });
+  const { vibeText, squads } = req.body;
+  if (!vibeText || !Array.isArray(squads)) {
+    return res.status(400).json({ error: 'vibeText (string) and squads (array) are required' });
   }
 
   try {
-    const signature = signFanPurchase(String(wallet), String(concertObjectId));
-    console.log(`[sign-fan-purchase] wallet=${wallet} concert=${concertObjectId} score=${tokenData.score} → signed ✅`);
-    return res.json({ signature: signature.toString('hex') });
-  } catch (err) {
-    console.error('[sign-fan-purchase] error:', err.message);
-    return res.status(500).json({ error: err.message });
-  }
-});
+    const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
 
-/**
- * GET /callback?code=X&state=eventId|artistName
- * Exchanges code, scores the user, redirects to frontend with ?score=N.
- */
-app.get('/callback', async (req, res) => {
-  const { code, state, error } = req.query;
+    const squadSummaries = squads
+      .map((sq) => `id:${sq.id} | name:${sq.name} | vibe:${sq.vibe}`)
+      .join('\n');
 
-  if (error) {
-    console.error('[spotify] user denied access:', error);
-    return res.redirect(`${FRONTEND_URL}?spotify_error=denied`);
-  }
-  if (!code || !state) {
-    return res.status(400).send('Missing code or state');
-  }
+    const prompt = `You are a concert squad matching assistant.\n\nUser's vibe: "${vibeText}"\n\nAvailable squads:\n${squadSummaries}\n\nAnalyze the user's vibe against every squad listed above. \nReturn a JSON array of ALL squads with the following fields:\n- id (string)\n- matchScore (integer 1-99)\n- reason (1 short sentence explaining the match, max 15 words)\n\nIMPORTANT: Return ONLY the JSON array. If you use quotes inside the "reason", you MUST escape them with a backslash (e.g. \\").`;
 
-  const decoded  = decodeURIComponent(String(state));
-  const isGlobal = decoded === 'global';
+    const result = await model.generateContent(prompt);
+    const rawText = result.response.text().trim();
 
-  let eventId, artistName;
-  if (!isGlobal) {
-    try {
-      const pipeIdx = decoded.indexOf('|');
-      eventId    = decoded.slice(0, pipeIdx);
-      artistName = decodeURIComponent(decoded.slice(pipeIdx + 1));
-    } catch {
-      return res.status(400).send('Malformed state parameter');
-    }
-    if (!eventId || !artistName) {
-      return res.status(400).send('Missing eventId or artistName in state');
-    }
-  }
-
-  try {
-    // Exchange authorization code for access token.
-    const tokenRes = await axios.post(
-      'https://accounts.spotify.com/api/token',
-      new URLSearchParams({
-        grant_type:    'authorization_code',
-        code:          String(code),
-        redirect_uri:  SPOTIFY_REDIRECT_URI,
-        client_id:     SPOTIFY_CLIENT_ID,
-        client_secret: SPOTIFY_CLIENT_SECRET,
-      }),
-      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
-    );
-    const accessToken = tokenRes.data.access_token;
-    const spotifyGet  = (url) =>
-      axios.get(url, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        timeout: 10_000, // 10 s — don't hang forever
-      });
-
-    // Use allSettled so a timeout on one signal doesn't crash the whole callback.
-    const [topArtistsResult, topTracksResult, recentResult] = await Promise.allSettled([
-      spotifyGet('https://api.spotify.com/v1/me/top/artists?time_range=long_term&limit=50'),
-      spotifyGet('https://api.spotify.com/v1/me/top/tracks?time_range=long_term&limit=50'),
-      spotifyGet('https://api.spotify.com/v1/me/player/recently-played?limit=50'),
-    ]);
-
-    if (topArtistsResult.status === 'rejected') console.warn('[spotify] top-artists failed:', topArtistsResult.reason?.message);
-    if (topTracksResult.status  === 'rejected') console.warn('[spotify] top-tracks failed:',  topTracksResult.reason?.message);
-    if (recentResult.status     === 'rejected') console.warn('[spotify] recently-played failed (non-fatal):', recentResult.reason?.message);
-
-    const topArtists  = topArtistsResult.status === 'fulfilled' ? (topArtistsResult.value.data.items || []) : [];
-    const topTracks   = topTracksResult.status  === 'fulfilled' ? (topTracksResult.value.data.items  || []) : [];
-    const recentItems = recentResult.status      === 'fulfilled' ? (recentResult.value.data.items     || []) : [];
-
-    console.log(`[spotify] top-artists (${topArtists.length}):`, topArtists.slice(0, 5).map(a => a.name));
-
-    /** 50/40/10 score for a single artist name */
-    const scoreFor = (name) => {
-      const t = name.toLowerCase();
-      let s = 0;
-      const rank = topArtists.findIndex(a => a.name.toLowerCase() === t);
-      if (rank >= 0 && rank < 5)        s += 50;
-      else if (rank >= 5 && rank < 20)  s += 35;
-      else if (rank >= 20 && rank < 50) s += 20;
-      s += Math.min(topTracks.filter(tr => tr.artists.some(a => a.name.toLowerCase() === t)).length * 8, 40);
-      s += Math.min(recentItems.filter(i => i.track.artists.some(a => a.name.toLowerCase() === t)).length * 2, 10);
-      return s;
-    };
-
-    if (isGlobal) {
-      // Check every concert and bundle all scores into a single redirect.
-      const concertList = await getConcerts();
-      const scores = {};
-      for (const c of concertList) {
-        scores[c.id] = scoreFor(c.artist);
-        console.log(`[spotify-global] "${c.artist}" (id=${c.id}) score=${scores[c.id]}`);
-      }
-      const fanScoresStr = Object.entries(scores).map(([id, s]) => `${id}:${s}`).join(',');
-      return res.redirect(`${FRONTEND_URL}/?fan_scores=${encodeURIComponent(fanScoresStr)}`);
-    } else {
-      const score = scoreFor(artistName);
-      console.log(`[spotify] FINAL eventId=${eventId} artist="${artistName}" score=${score}/100`);
-      const fanTokenParam = score >= 60 ? `&fanToken=${encodeURIComponent(createFanToken(eventId, score))}` : '';
-      return res.redirect(`${FRONTEND_URL}/concert/${eventId}?score=${score}${fanTokenParam}`);
+    const startBracket = rawText.indexOf('[');
+    const endBracket = rawText.lastIndexOf(']');
+    if (startBracket === -1 || endBracket === -1) {
+      throw new Error('AI did not return a valid JSON array');
     }
 
+    const parsed = JSON.parse(rawText.substring(startBracket, endBracket + 1));
+    return res.json(parsed);
   } catch (err) {
-    console.error('[spotify] callback error', err?.response?.data || err?.message || err);
-    const fallback = isGlobal
-      ? `${FRONTEND_URL}/?spotify_error=1`
-      : `${FRONTEND_URL}/concert/${eventId}?score=0&spotify_error=1`;
-    return res.redirect(fallback);
+    console.error('[ai] analyze-squads error:', err);
+    return res.status(500).json({ error: 'AI analysis failed', details: err.message });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-
-const server = app.listen(PORT, '127.0.0.1', () => {
-  console.log(`[api] listening on http://127.0.0.1:${PORT}`);
+const server = app.listen(PORT, () => {
+  console.log(`[api] listening on http://localhost:${PORT}`);
 });
 
 server.on('error', (err) => {
@@ -800,17 +522,22 @@ async function calculateTransit({ from, to }) {
 }
 
 /**
- * In-memory squad expense tracker — persists for server lifetime.
+ * squad expense tracker — persisted in MongoDB.
  */
-function logExpense({ payer, amount, description }, channelId) {
-  if (!expenseLedger.has(channelId)) expenseLedger.set(channelId, []);
-  const ledger = expenseLedger.get(channelId);
-  ledger.push({ payer, amount, description });
-  const total     = ledger.reduce((s, e) => s + e.amount, 0);
-  const breakdown = ledger.map((e) => `  • ${e.payer}: $${e.amount} — ${e.description}`).join('\n');
+async function logExpense({ payer, amount, description }, channelId) {
+  await supabase.from('expenses').insert({ channel_id: channelId, payer, amount, description });
+
+  const { data: ledger = [] } = await supabase
+    .from('expenses')
+    .select('payer, amount, description')
+    .eq('channel_id', channelId)
+    .order('created_at', { ascending: true });
+  const rows     = ledger || [];
+  const total     = rows.reduce((s, e) => s + Number(e.amount), 0);
+  const breakdown = rows.map((e) => `  • ${e.payer}: $${e.amount} — ${e.description}`).join('\n');
   return (
     `✅ Logged! **${payer}** paid **$${amount}** for ${description}.\n\n` +
-    `**Squad tab (${ledger.length} item${ledger.length !== 1 ? 's' : ''}, total $${total.toFixed(2)}):**\n` +
+    `**Squad tab (${rows.length} item${rows.length !== 1 ? 's' : ''}, total $${total.toFixed(2)}):**\n` +
     breakdown
   );
 }

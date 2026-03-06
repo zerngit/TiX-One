@@ -9,7 +9,6 @@ import {
 import { Transaction } from "@mysten/sui/transactions";
 import { ArrowLeft, Lock } from "lucide-react";
 import { PopBackground } from "../components/PopBackground";
-import DelbotVerification from "../components/DelbotVerification";
 import {
   LISTING_REGISTRY_ID,
   PACKAGE_ID,
@@ -28,8 +27,6 @@ export default function CheckoutPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isPurchasing, setIsPurchasing] = useState(false);
   const [error, setError] = useState<string>("");
-  const [showDelbot, setShowDelbot] = useState(false);
-
   const kioskId = searchParams.get("kiosk") || "";
   const ticketId = searchParams.get("ticket") || "";
   const priceParam = searchParams.get("price");
@@ -77,17 +74,10 @@ export default function CheckoutPage() {
       return;
     }
 
-    // Show Delbot verification first
-    setShowDelbot(true);
-  };
-
-  const handleBotDetected = () => {
-    setShowDelbot(false);
-    navigate("/bot-detected");
+    await proceedWithPurchase();
   };
 
   const proceedWithPurchase = async () => {
-    setShowDelbot(false);
     if (!currentAccount) return;
 
     setIsPurchasing(true);
@@ -216,14 +206,6 @@ export default function CheckoutPage() {
           </div>
         )}
       </div>
-      {/* Delbot Verification Modal */}
-      {showDelbot && (
-        <DelbotVerification
-          minDataPoints={50}
-          onHumanVerified={proceedWithPurchase}
-          onBotDetected={handleBotDetected}
-          onCancel={() => setShowDelbot(false)}
-        />
-      )}    </div>
+    </div>
   );
 }

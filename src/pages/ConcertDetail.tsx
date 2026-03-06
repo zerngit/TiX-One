@@ -206,7 +206,7 @@ export default function ConcertDetail() {
       return;
     }
     setPendingPurchaseType(type);
-    setShowDelbot(true);
+    proceedWithPurchase();
   };
 
   const handleFanPresale = () => {

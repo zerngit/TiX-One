@@ -9,6 +9,8 @@ import Checkout from "./pages/Checkout";
 import BotDetected from "./pages/BotDetected";
 import Appeal from "./pages/Appeal";
 import CreateConcert from "./pages/CreateConcert";
+import SquadMatchingLobby from "./pages/SquadMatchingLobby";
+import SquadRoom from "./pages/SquadRoom";
 
 export const router = createBrowserRouter([
   {
@@ -50,5 +52,13 @@ export const router = createBrowserRouter([
   {
     path: "/create-concert",
     Component: CreateConcert,
+  },
+  {
+    path: "/squad-lobby",
+    Component: SquadMatchingLobby,
+  },
+  {
+    path: "/squad/:squadId",
+    Component: SquadRoom,
   },
 ]);

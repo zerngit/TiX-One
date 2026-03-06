@@ -92,7 +92,7 @@ export function CheckInListener() {
         .eq("status", "pending")
         .order("created_at", { ascending: false })
         .limit(1)
-        .single();
+        .maybeSingle();
 
       if (!data) return;
       setPendingCheckIn((prev) => {
