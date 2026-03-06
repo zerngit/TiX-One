@@ -533,7 +533,7 @@ export default function SquadMatchingLobby() {
                       <button
                         onClick={() => handleJoinSquad(sq.id)}
                         disabled={joiningId === sq.id}
-                        className="px-8 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border border-white/10 rounded-xl text-xs font-bold transition-all text-white shadow-lg shadow-purple-500/20 disabled:opacity-50 flex items-center gap-1.5"
+                        className="shrink-0 px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border border-white/10 rounded-xl text-sm font-bold transition-all text-white shadow-lg shadow-purple-500/20 disabled:opacity-50 flex items-center gap-2"
                       >
                         {joiningId === sq.id ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -599,21 +599,24 @@ export default function SquadMatchingLobby() {
 
           {/* ── Browse All Squads ── */}
           <section className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="space-y-4">
               <div className="flex items-center gap-3">
                 <Users className="w-5 h-5 text-purple-400" />
                 <h3 className="font-display font-semibold text-xl text-white">Browse All Squads</h3>
               </div>
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-white/20" />
-                <input
-                  type="text"
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search squads..."
-                  className="bg-white/5 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white placeholder:text-white/30 focus:outline-none focus:border-purple-500/50 transition-all w-64"
-                />
-              </div>
+              <input
+                type="text"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                placeholder="Search squads..."
+                className="w-full rounded-xl py-3 pl-14 pr-5 text-sm text-white placeholder:text-white/30 focus:outline-none transition-all"
+    style={{
+      paddingLeft: "28px",
+      backgroundColor: "rgba(255, 255, 255, 0.08)", // Lightened background for visibility
+      border: "1px solid rgba(255, 255, 255, 0.2)", // Crisp white-transparent border
+      boxShadow: "0 4px 12px rgba(0, 0, 0, 0.3)"    // Shadow to create physical separation
+    }}
+              />
             </div>
 
             {/* Filters */}
@@ -692,7 +695,7 @@ export default function SquadMatchingLobby() {
                           handleJoinSquad(sq.id);
                         }}
                         disabled={joiningId === sq.id || (sq.member_count || 0) >= sq.max_members}
-                        className="px-8 py-2.5 bg-white/5 hover:bg-white/10 border border-white/10 rounded-xl text-xs font-bold transition-all text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1.5"
+                        className="shrink-0 px-6 py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 border border-white/10 rounded-xl text-sm font-bold transition-all text-white shadow-lg shadow-purple-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
                       >
                         {joiningId === sq.id ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
