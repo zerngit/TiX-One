@@ -220,7 +220,7 @@ app.post('/api/create-squad', async (req, res) => {
           // The "Invisible Trigger" telling the AI to speak first
           const initialPrompt = `${systemInstruction}\n\n=== CHAT HISTORY ===\nSystem: A new squad room was just created. The first human ticket holder has entered the room, but hasn't spoken yet. You are the AI Concierge. Speak first! Welcome them to the ${concert.title} squad, hype them up, and ask a fun icebreaker question to find out their concert vibe.\n\nConcierge (You):`;
 
-          const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+          const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
           const result = await model.generateContent(initialPrompt);
           const reply = result.response.text().trim();
 
@@ -286,7 +286,7 @@ app.post('/api/analyze-squads', async (req, res) => {
   }
 
   try {
-    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash' });
+    const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
 
     const squadSummaries = squads
       .map((sq) => `id:${sq.id} | name:${sq.name} | vibe:${sq.vibe}`)

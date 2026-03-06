@@ -261,37 +261,65 @@ export default function SquadRoom() {
             <h2 className="font-display font-semibold text-lg text-white">Squad Members</h2>
           </div>
 
-          <div className="space-y-3">
-            {members.map((m) => (
-              <div
-                key={m.id}
-                className="flex items-center gap-4 p-4 rounded-2xl bg-[#1a1535] border border-purple-500/20 hover:border-purple-500/40 hover:bg-[#1f1a3d] transition-all"
-              >
-                <div
-                  className={`w-11 h-11 rounded-xl bg-gradient-to-br ${getAvatarGradient(m.wallet)} flex items-center justify-center text-xs font-bold text-white shrink-0 shadow-lg`}
-                >
-                  {m.wallet.slice(2, 4).toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-medium text-white">{shortenWallet(m.wallet)}</span>
-                    {m.wallet === walletAddress && (
-                      <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30 font-bold">
-                        you
-                      </span>
-                    )}
-                  </div>
-                  {m.bio && (
-                    <p className="text-xs text-white/40 truncate mt-0.5">{m.bio}</p>
-                  )}
-                </div>
-                <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-emerald-500/15 border border-emerald-500/30">
-                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-                  <span className="text-xs font-medium text-emerald-300">Online</span>
-                </div>
-              </div>
-            ))}
-          </div>
+          <div className="space-y-3 mt-6">
+  {members.map((m, index) => (
+    <div
+      key={m.id}
+      className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-4 rounded-xl backdrop-blur-md transition-all duration-300 hover:-translate-y-1"
+      style={{
+        backgroundColor: "rgba(255, 255, 255, 0.06)",
+        border: "1px solid rgba(255, 255, 255, 0.15)",
+        boxShadow: "0 4px 20px rgba(0, 0, 0, 0.3)"
+      }}
+    >
+      {/* Member ID and Address */}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span 
+          style={{ color: "rgba(255,255,255,0.6)", fontSize: "0.85rem", fontWeight: 600 }}
+        >
+          Member {index + 1}:
+        </span>
+        <span className="text-base font-bold text-white font-mono tracking-wide">
+          {shortenWallet(m.wallet)}
+        </span>
+        
+        {/* "YOU" Badge */}
+        {m.wallet === walletAddress && (
+          <span 
+            className="text-[10px] px-2 py-0.5 rounded-md font-black uppercase tracking-wider"
+            style={{
+              backgroundColor: "rgba(167, 139, 246, 0.2)",
+              color: "#c4b5fd",
+              border: "1px solid rgba(167, 139, 246, 0.3)"
+            }}
+          >
+            YOU
+          </span>
+        )}
+      </div>
+      
+      {/* Online Status */}
+      <div 
+        className="flex items-center gap-2 px-3 py-1.5 rounded-full shrink-0"
+        style={{
+          backgroundColor: "rgba(52, 211, 153, 0.1)",
+          border: "1px solid rgba(52, 211, 153, 0.3)"
+        }}
+      >
+        <span 
+          className="w-1.5 h-1.5 rounded-full animate-pulse" 
+          style={{ backgroundColor: "#34d399" }} 
+        />
+        <span 
+          className="text-[10px] font-black uppercase tracking-widest"
+          style={{ color: "#34d399" }}
+        >
+          Online
+        </span>
+      </div>
+    </div>
+  ))}
+</div>
         </motion.section>
 
         {/* Info note */}
@@ -312,7 +340,12 @@ export default function SquadRoom() {
           <button
             onClick={handleLeave}
             disabled={leaving}
-            className="flex items-center gap-2 px-6 py-3 rounded-xl bg-red-600 hover:bg-red-500 active:bg-red-700 text-white font-semibold text-sm shadow-lg shadow-red-900/40 transition-all active:scale-95 disabled:opacity-50"
+            className="flex items-center justify-center gap-2 px-6 py-3 rounded-[10px] text-[#fca5a5] hover:text-white transition-all active:scale-95 disabled:opacity-50 font-black uppercase tracking-widest text-xs"
+            style={{
+              border: "2px solid rgba(239,68,68,0.5)",
+              background: "linear-gradient(135deg, rgba(127,0,0,0.5), rgba(185,28,28,0.4))",
+              boxShadow: "0 0 16px rgba(239,68,68,0.2)"
+            }}
           >
             {leaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <LogOut className="w-4 h-4" />}
             {leaving ? "Leaving…" : "Leave Squad"}
