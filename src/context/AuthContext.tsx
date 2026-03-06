@@ -33,7 +33,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const connectSpotify = async () => {
     setSpotifyLoading(true);
     try {
-      const res = await fetch('http://127.0.0.1:8787/auth-url-global');
+      // Dynamically grab the backend URL from Vercel's environment variables
+      // If it doesn't exist (like on your local PC), fallback to localhost!
+      const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://127.0.0.1:8787';
+      
+      const res = await fetch(`${backendUrl}/auth-url-global`);
       const { url } = await res.json();
       window.location.assign(url); // full-page redirect to Spotify
     } catch (e) {

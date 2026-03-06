@@ -18,7 +18,6 @@ import {
   CheckCircle2,
   Users,
 } from "lucide-react";
-import { concerts } from "../data/concerts";
 import {
   KIOSK_OWNER_CAP_TYPE,
   LISTING_REGISTRY_ID,
@@ -27,7 +26,7 @@ import {
   TICKET_TYPE,
 } from "../onechain/config";
 import { useBuyTicket } from "../onechain/useBuyTicket";
-import { useConcertById } from "../hooks/useConcerts";
+import { useConcerts } from "../hooks/useConcerts";
 
 type TicketFields = Record<string, any> & { objectId: string };
 
@@ -70,18 +69,21 @@ export default function MyTicketPage() {
     [tickets, selectedTicketId]
   );
 
+  // Fetch all concerts from Supabase (falls back to static data if Supabase is unavailable)
+  const { concerts: allConcerts } = useConcerts();
+
   const selectedConcert = useMemo(() => {
-    if (!selectedTicket) return null;
+    if (!selectedTicket || allConcerts.length === 0) return null;
 
     const ticketArtist = String((selectedTicket as any).artist || "").trim();
     const ticketEventName = String((selectedTicket as any).event_name || "").trim();
 
-    const byExact = concerts.find(
+    const byExact = allConcerts.find(
       (c) => c.artist === ticketArtist && c.title === ticketEventName
     );
     if (byExact) return byExact;
 
-    const byIncludes = concerts.find(
+    const byIncludes = allConcerts.find(
       (c) =>
         c.artist === ticketArtist &&
         ticketEventName &&
@@ -89,8 +91,8 @@ export default function MyTicketPage() {
     );
     if (byIncludes) return byIncludes;
 
-    return concerts.find((c) => c.artist === ticketArtist) || null;
-  }, [selectedTicket]);
+    return allConcerts.find((c) => c.artist === ticketArtist) || null;
+  }, [selectedTicket, allConcerts]);
 
   const [isLoading, setIsLoading] = useState(true);
 
@@ -101,9 +103,6 @@ export default function MyTicketPage() {
   const [listingStatusByTicketId, setListingStatusByTicketId] = useState<
     Record<string, "none" | "public">
   >();
-
-  // On-chain concert data (with concert_object_id + waitlist_object_id from Supabase)
-  const { concert: supabaseConcert } = useConcertById(selectedConcert?.id);
 
   // Smart-sell hook
   const { sellOrListTicket, isBuying: isSelling } = useBuyTicket();
@@ -422,8 +421,9 @@ export default function MyTicketPage() {
       return;
     }
 
-    const concertObjectId = supabaseConcert?.concert_object_id;
-    const waitlistObjectId = supabaseConcert?.waitlist_object_id;
+    // selectedConcert is already a SupabaseConcert fetched live from Supabase
+    const concertObjectId = selectedConcert?.concert_object_id;
+    const waitlistObjectId = selectedConcert?.waitlist_object_id;
 
     if (!concertObjectId) {
       alert("Concert is not yet linked on-chain. Please try again later.");
