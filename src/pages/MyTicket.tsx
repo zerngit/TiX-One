@@ -725,7 +725,7 @@ export default function MyTicketPage() {
                         ) : (
                           <button
                             onClick={sellAtFaceValue}
-                            disabled={isSelling || !supabaseConcert?.waitlist_object_id || !supabaseConcert?.concert_object_id}
+                            disabled={isSelling || !selectedConcert?.waitlist_object_id || !selectedConcert?.concert_object_id}
                             className="w-full rounded-xl bg-gradient-to-r from-pink-600 to-purple-600 border-none text-white py-4 px-5 hover:from-pink-500 hover:to-purple-500 transition-colors font-bold shadow-[0_0_20px_rgba(236,72,153,0.5)] disabled:opacity-60 disabled:cursor-not-allowed"
                             title="Sell at face value — goes to waitlist buyer first, or listed on marketplace if queue is empty"
                           >
@@ -734,7 +734,7 @@ export default function MyTicketPage() {
                               {isSelling ? "Processing…" : "Sell at Face Value"}
                             </div>
                             <div className="mt-1 text-xs text-pink-200 font-medium">
-                              {supabaseConcert?.waitlist_object_id
+                              {selectedConcert?.waitlist_object_id
                                 ? "Priority to waitlist buyers · Falls back to marketplace"
                                 : "Loading concert data…"}
                             </div>
