@@ -162,7 +162,7 @@ app.get('/health', (_req, res) => {
 const SPOTIFY_CLIENT_ID     = process.env.SPOTIFY_CLIENT_ID;
 const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
 const SPOTIFY_REDIRECT_URI  = process.env.SPOTIFY_REDIRECT_URI;
-const FRONTEND_URL          = process.env.FRONTEND_ORIGIN || 'http://127.0.0.1:3000';
+const FRONTEND_URL          = process.env.FRONTEND_ORIGIN || 'https://ti-x-one-deploy.vercel.app';
 const SPOTIFY_SCOPES        = 'user-top-read user-read-recently-played';
 
 /**
