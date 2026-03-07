@@ -155,41 +155,159 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
-// ─── SPOTIFY AUTHENTICATION ENDPOINTS ───────────────────────────────────────
+// ─── SPOTIFY OAUTH & FAN SCORING ────────────────────────────────────────────
+// 50/40/10 scoring: long-term top artists (50) + track variety (40) + recent plays (10)
+// Resistant to Sybil attacks — all signals require multi-year genuine listening history.
 
-app.get('/auth-url-global', (req, res) => {
-  if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_REDIRECT_URI) {
-    return res.status(500).json({ error: "Spotify credentials missing in backend .env" });
-  }
+const SPOTIFY_CLIENT_ID     = process.env.SPOTIFY_CLIENT_ID;
+const SPOTIFY_CLIENT_SECRET = process.env.SPOTIFY_CLIENT_SECRET;
+const SPOTIFY_REDIRECT_URI  = process.env.SPOTIFY_REDIRECT_URI;
+const FRONTEND_URL          = process.env.FRONTEND_URL || 'http://127.0.0.1:3000';
+const SPOTIFY_SCOPES        = 'user-top-read user-read-recently-played';
 
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: process.env.SPOTIFY_CLIENT_ID,
-    scope: 'user-top-read',
-    redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
-    state: 'global' // Tells the callback this is a global verification
-  });
-
-  res.json({ url: `https://accounts.spotify.com/authorize?${params.toString()}` });
-});
-
+/**
+ * GET /auth-url?eventId=1&artistName=Jay+Chou
+ * Returns the Spotify OAuth URL. State encodes eventId|artistName.
+ */
 app.get('/auth-url', (req, res) => {
   const { eventId, artistName } = req.query;
-  
-  if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_REDIRECT_URI) {
-    return res.status(500).json({ error: "Spotify credentials missing in backend .env" });
+  if (!eventId || !artistName) {
+    return res.status(400).json({ error: 'Missing eventId or artistName' });
+  }
+  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_REDIRECT_URI) {
+    return res.status(500).json({ error: 'Spotify credentials not configured' });
+  }
+  const state = `${eventId}|${encodeURIComponent(artistName)}`;
+  const url =
+    `https://accounts.spotify.com/authorize` +
+    `?client_id=${SPOTIFY_CLIENT_ID}` +
+    `&response_type=code` +
+    `&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT_URI)}` +
+    `&scope=${encodeURIComponent(SPOTIFY_SCOPES)}` +
+    `&state=${encodeURIComponent(state)}`;
+  res.json({ url });
+});
+
+/**
+ * GET /auth-url-global
+ * Returns Spotify OAuth URL for global fan-check (all concerts at once).
+ */
+app.get('/auth-url-global', (req, res) => {
+  if (!SPOTIFY_CLIENT_ID || !SPOTIFY_REDIRECT_URI) {
+    return res.status(500).json({ error: 'Spotify credentials not configured' });
+  }
+  const url =
+    `https://accounts.spotify.com/authorize` +
+    `?client_id=${SPOTIFY_CLIENT_ID}` +
+    `&response_type=code` +
+    `&redirect_uri=${encodeURIComponent(SPOTIFY_REDIRECT_URI)}` +
+    `&scope=${encodeURIComponent(SPOTIFY_SCOPES)}` +
+    `&state=global`;
+  res.json({ url });
+});
+
+/**
+ * GET /callback?code=X&state=eventId|artistName  (or state=global)
+ * Exchanges code, scores the user, redirects to frontend with ?score=N (per-concert)
+ * or ?fan_scores=1:72,2:0,... (global).
+ */
+app.get('/callback', async (req, res) => {
+  const { code, state, error } = req.query;
+
+  if (error) {
+    console.error('[spotify] user denied access:', error);
+    return res.redirect(`${FRONTEND_URL}?spotify_error=denied`);
+  }
+  if (!code || !state) {
+    return res.status(400).send('Missing code or state');
   }
 
-  const params = new URLSearchParams({
-    response_type: 'code',
-    client_id: process.env.SPOTIFY_CLIENT_ID,
-    scope: 'user-top-read',
-    redirect_uri: process.env.SPOTIFY_REDIRECT_URI,
-    // Pass the specific concert data in the state
-    state: JSON.stringify({ eventId, artistName }) 
-  });
+  const decoded  = decodeURIComponent(String(state));
+  const isGlobal = decoded === 'global';
 
-  res.json({ url: `https://accounts.spotify.com/authorize?${params.toString()}` });
+  let eventId, artistName;
+  if (!isGlobal) {
+    try {
+      const pipeIdx = decoded.indexOf('|');
+      eventId    = decoded.slice(0, pipeIdx);
+      artistName = decodeURIComponent(decoded.slice(pipeIdx + 1));
+    } catch {
+      return res.status(400).send('Malformed state parameter');
+    }
+    if (!eventId || !artistName) {
+      return res.status(400).send('Missing eventId or artistName in state');
+    }
+  }
+
+  try {
+    // Exchange authorization code for access token.
+    const tokenRes = await axios.post(
+      'https://accounts.spotify.com/api/token',
+      new URLSearchParams({
+        grant_type:    'authorization_code',
+        code:          String(code),
+        redirect_uri:  SPOTIFY_REDIRECT_URI,
+        client_id:     SPOTIFY_CLIENT_ID,
+        client_secret: SPOTIFY_CLIENT_SECRET,
+      }),
+      { headers: { 'Content-Type': 'application/x-www-form-urlencoded' } },
+    );
+    const accessToken = tokenRes.data.access_token;
+    const spotifyGet  = (url) =>
+      axios.get(url, { headers: { Authorization: `Bearer ${accessToken}` } });
+
+    // Fetch all three signals in parallel — one round-trip regardless of global/per-concert.
+    const [topArtistsRes, topTracksRes, recentRes] = await Promise.all([
+      spotifyGet('https://api.spotify.com/v1/me/top/artists?time_range=long_term&limit=50'),
+      spotifyGet('https://api.spotify.com/v1/me/top/tracks?time_range=long_term&limit=50'),
+      spotifyGet('https://api.spotify.com/v1/me/player/recently-played?limit=50'),
+    ]);
+    const topArtists  = topArtistsRes.data.items || [];
+    const topTracks   = topTracksRes.data.items  || [];
+    const recentItems = recentRes.data.items     || [];
+
+    console.log(`[spotify] top-artists (${topArtists.length}):`, topArtists.slice(0, 5).map(a => a.name));
+
+    /** 50/40/10 score for a single artist name */
+    const scoreFor = (name) => {
+      const t = name.toLowerCase();
+      let s = 0;
+      const rank = topArtists.findIndex(a => a.name.toLowerCase() === t);
+      if (rank >= 0 && rank < 5)        s += 50;
+      else if (rank >= 5 && rank < 20)  s += 35;
+      else if (rank >= 20 && rank < 50) s += 20;
+      s += Math.min(topTracks.filter(tr => tr.artists.some(a => a.name.toLowerCase() === t)).length * 8, 40);
+      s += Math.min(recentItems.filter(i => i.track.artists.some(a => a.name.toLowerCase() === t)).length * 2, 10);
+      return s;
+    };
+
+    if (isGlobal) {
+      // Fetch all concerts from Supabase — no hardcoded list needed.
+      const { data: concertRows, error: dbErr } = await supabase
+        .from('concerts')
+        .select('id, artist');
+      if (dbErr) throw new Error(`Supabase concerts fetch failed: ${dbErr.message}`);
+
+      const scores = {};
+      for (const c of (concertRows || [])) {
+        scores[String(c.id)] = scoreFor(c.artist);
+        console.log(`[spotify-global] "${c.artist}" (id=${c.id}) score=${scores[String(c.id)]}`);
+      }
+      const fanScoresStr = Object.entries(scores).map(([id, s]) => `${id}:${s}`).join(',');
+      return res.redirect(`${FRONTEND_URL}/?fan_scores=${encodeURIComponent(fanScoresStr)}`);
+    } else {
+      const score = scoreFor(artistName);
+      console.log(`[spotify] FINAL eventId=${eventId} artist="${artistName}" score=${score}/100`);
+      return res.redirect(`${FRONTEND_URL}/concert/${eventId}?score=${score}`);
+    }
+
+  } catch (err) {
+    console.error('[spotify] callback error', err?.response?.data || err.message);
+    const fallback = isGlobal
+      ? `${FRONTEND_URL}/?spotify_error=1`
+      : `${FRONTEND_URL}/concert/${eventId}?score=0&spotify_error=1`;
+    return res.redirect(fallback);
+  }
 });
 
 app.post('/api/create-squad', async (req, res) => {
