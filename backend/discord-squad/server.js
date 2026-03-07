@@ -155,6 +155,18 @@ app.get('/health', (_req, res) => {
   res.json({ ok: true });
 });
 
+app.get('/env-check', (req, res) => {
+  res.json({
+    status: "Checking Environment Variables",
+    DISCORD_TOKEN: !!process.env.DISCORD_TOKEN,
+    GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
+    SPOTIFY_CLIENT_ID: !!process.env.SPOTIFY_CLIENT_ID,
+    GEOAPIFY_API_KEY: !!process.env.GEOAPIFY_API_KEY,
+    OPENWEATHER_API_KEY: !!process.env.OPENWEATHER_API_KEY,
+    FRONTEND_ORIGIN: process.env.FRONTEND_ORIGIN || "Missing!",
+  });
+});
+
 // ─── SPOTIFY OAUTH & FAN SCORING ────────────────────────────────────────────
 // 50/40/10 scoring: long-term top artists (50) + track variety (40) + recent plays (10)
 // Resistant to Sybil attacks — all signals require multi-year genuine listening history.
