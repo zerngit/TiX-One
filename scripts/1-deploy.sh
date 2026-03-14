@@ -131,6 +131,6 @@ fi
 
 echo ""
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-echo "  NEXT STEP: Run scripts/2-seed-concerts.sh"
+echo "  NEXT STEP: Run scripts/3-init-verifier.sh"
 echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 echo ""

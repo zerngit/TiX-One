@@ -1,14 +1,12 @@
 #!/bin/bash
 # =============================================================
-# TiX-One Full Redeploy
-# Run this whenever ticket.move is changed.
+# TiX-One Full Redeploy (dynamic, Supabase-driven)
 #
-# What it does (in order):
-#   1. Deploy the smart contract  → saves new IDs + patches config.ts
-#   2. Create 15 Concert objects on-chain
-#   3. Initialise the BackendVerifier with the Spotify public key
-#   4. Create 15 Waitlist objects on-chain (with expires_at per concert)
-#   5. Push all new on-chain IDs to Supabase automatically
+# Steps:
+#   1. Deploy contract
+#   2. Init BackendVerifier
+#   3. Create TransferPolicy
+#   4. Seed concerts + waitlists from Supabase and sync IDs back
 #
 # Usage:
 #   bash scripts/redeploy.sh
@@ -23,25 +21,17 @@ echo "║          TiX-One Full Redeploy Pipeline              ║"
 echo "╚══════════════════════════════════════════════════════╝"
 echo ""
 
-# ── Step 1: Deploy contract ────────────────────────────────────────────────
 echo "━━━  STEP 1/5 — Deploy contract  ━━━━━━━━━━━━━━━━━━━━━━"
 bash "$SCRIPT_DIR/1-deploy.sh"
 
-# ── Step 2: Seed Concert objects ───────────────────────────────────────────
-echo "━━━  STEP 2/5 — Seed Concert objects  ━━━━━━━━━━━━━━━━━"
-bash "$SCRIPT_DIR/2-seed-concerts.sh"
-
-# ── Step 3: Initialise BackendVerifier ────────────────────────────────────
-echo "━━━  STEP 3/5 — Init BackendVerifier  ━━━━━━━━━━━━━━━━━"
+echo "━━━  STEP 2/4 — Init BackendVerifier  ━━━━━━━━━━━━━━━━━"
 bash "$SCRIPT_DIR/3-init-verifier.sh"
 
-# ── Step 4: Create Waitlist objects (with expires_at) ─────────────────────
-echo "━━━  STEP 4/5 — Create Waitlist objects  ━━━━━━━━━━━━━━"
-bash "$SCRIPT_DIR/4-init-waitlists.sh"
+echo "━━━  STEP 3/4 — Create TransferPolicy  ━━━━━━━━━━━━━━━━"
+bash "$SCRIPT_DIR/init-transfer-policy.sh"
 
-# ── Step 5: Push IDs to Supabase ──────────────────────────────────────────
-echo "━━━  STEP 5/5 — Sync to Supabase  ━━━━━━━━━━━━━━━━━━━━━"
-node "$SCRIPT_DIR/apply-supabase.mjs"
+echo "━━━  STEP 4/4 — Seed from Supabase  ━━━━━━━━━━━━━━━━━━━"
+node "$SCRIPT_DIR/2-seed-dynamic.mjs"
 
 echo ""
 echo "╔══════════════════════════════════════════════════════╗"

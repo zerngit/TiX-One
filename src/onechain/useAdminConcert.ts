@@ -5,7 +5,7 @@ import {
   useSuiClient,
 } from "@mysten/dapp-kit";
 import { Transaction } from "@mysten/sui/transactions";
-import { ADMIN_CAP_ID, PACKAGE_ID } from "./config";
+import { PACKAGE_ID } from "./config";
 import { supabase } from "../lib/supabase";
 
 // ─── Types ──────────────────────────────────────────────────────────────────
@@ -128,7 +128,6 @@ export function useAdminConcert() {
       tx.moveCall({
         target: `${PACKAGE_ID}::ticket::create_concert`,
         arguments: [
-          tx.object(ADMIN_CAP_ID),
           tx.pure.string(form.artist),
           tx.pure.string(form.title),
           tx.pure.u64(parseInt(form.maxTickets, 10)),
@@ -170,7 +169,6 @@ export function useAdminConcert() {
       tx.moveCall({
         target: `${PACKAGE_ID}::ticket::create_waitlist`,
         arguments: [
-          tx.object(ADMIN_CAP_ID),
           tx.object(concertObjectId),
           tx.pure.u64(faceMist),
           tx.pure.u64(expiresMs),

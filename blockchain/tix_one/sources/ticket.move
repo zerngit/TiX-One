@@ -161,10 +161,9 @@ fun init(otw: TICKET, ctx: &mut TxContext) {
 // =========================================================
 // --- 1. CONCERT REGISTRY: Create a per-event supply cap ---
 // =========================================================
-/// Admin-only: create a shared Concert object that governs how many
-/// tickets can ever be minted for this specific event.
+/// Demo mode: any wallet can create a shared Concert object.
+/// This removes the AdminCap requirement for easier testing.
 public fun create_concert(
-    _: &AdminCap,
     artist: String,
     event_name: String,
     max_supply: u64,
@@ -184,11 +183,10 @@ public fun create_concert(
 // =========================================================
 // --- WAITLIST: Admin creates one per concert ---
 // =========================================================
-/// Admin-only: create a shared Waitlist for a concert.
+/// Demo mode: any wallet can create a shared Waitlist for a concert.
 /// `face_value` must match the ticket price so escrow amounts are exact.
 /// `expires_at` is the Unix timestamp in ms when the concert starts (queue locks).
 public fun create_waitlist(
-    _: &AdminCap,
     concert: &Concert,
     face_value: u64,
     expires_at: u64,
