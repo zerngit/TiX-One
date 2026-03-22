@@ -74,20 +74,11 @@ if (!isProd) {
 
 app.use(
   cors({
-    origin(origin, callback) {
-      // Allow non-browser tools (curl/postman) with no Origin.
-      if (!origin) return callback(null, true);
-
-      // In production, lock down to explicit origin if provided.
-      if (isProd) {
-        if (FRONTEND_ORIGIN && origin === FRONTEND_ORIGIN) return callback(null, true);
-        if (!FRONTEND_ORIGIN && origin === 'http://localhost:5173') return callback(null, true);
-        return callback(new Error(`CORS blocked for origin: ${origin}`));
-      }
-
-      // In local dev, allow any origin to simplify hackathon/dev setups.
-      return callback(null, true);
-    },
+    origin: [
+      'https://ti-x-one-deploy.vercel.app', // Your live Vercel site
+      'http://localhost:5173',              // Local Vite testing
+      'http://localhost:3000'               // Alternative local port
+    ],
     methods: ['GET', 'POST', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization'],
   }),
