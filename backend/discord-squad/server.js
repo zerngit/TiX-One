@@ -334,7 +334,7 @@ app.post('/api/create-squad', async (req, res) => {
     
     // 1. Create the Channel via REST API (Bypasses WebSocket)
     const channel = await rest.post(
-      `/guilds/${process.env.DISCORD_GUILD_ID}/channels`,
+      `/guilds/${process.env.GUILD_ID}/channels`,
       {
         body: {
           name: baseName,
