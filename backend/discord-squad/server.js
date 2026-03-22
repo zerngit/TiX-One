@@ -313,6 +313,7 @@ app.get('/callback', async (req, res) => {
 });
 
 app.post('/api/create-squad', async (req, res) => {
+  console.log("🚨 REQUEST RECEIVED:", req.body);
   try {
     const { squadId, concertId, concertName } = req.body || {};
 
