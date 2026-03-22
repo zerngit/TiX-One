@@ -1,10 +1,6 @@
 {
   "rewrites": [
     {
-      "source": "/onechain-rpc",
-      "destination": "https://rpc-testnet.onelabs.cc/"
-    },
-    {
       "source": "/(.*)",
       "destination": "/index.html"
     }
