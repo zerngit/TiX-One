@@ -323,7 +323,9 @@ app.post('/api/create-squad', async (req, res) => {
       });
     }
 
+    console.log("⏳ 3. Checking if Discord Bot is ready...");
     const guild = await getGuildOrThrow();
+    console.log("✅ 4. Bot is ready and Guild (Server) is found!");
 
     // Every squad gets its own unique private channel — no reuse.
     const squadSlug = slugifyChannelPart(squadId).slice(0, 8);
@@ -331,7 +333,7 @@ app.post('/api/create-squad', async (req, res) => {
     if (baseName.length > 90) baseName = baseName.slice(0, 90);
 
     const topic = `TiX-One VIP Squad Room | SquadID: ${squadId} | ConcertID: ${concertId}`;
-
+    console.log(`⏳ 5. Attempting to create channel: ${baseName}...`);
     // Create the channel.
     const channel = await guild.channels.create({
       name: baseName,
@@ -340,7 +342,7 @@ app.post('/api/create-squad', async (req, res) => {
       topic,
       reason: `TiX-One create-squad for squadId=${squadId}`,
     });
-
+    console.log("✅ 6. Channel successfully created!");
     // Optional: ensure the bot can create invites and send messages.
     // (If it can't, we'll fail on invite creation or send below.)
     const me = guild.members.me;
@@ -408,7 +410,9 @@ app.post('/api/create-squad', async (req, res) => {
        // Failsafe if API key is missing
        await channel.send(`Welcome to the TiX-One Squad for ${concertName}!`);
     }
+    
 
+    console.log("⏳ 7. Creating Discord Invite link...");
     // Create a never-expiring, unlimited-use invite.
     const invite = await channel.createInvite({
       maxAge: 0,
@@ -416,13 +420,14 @@ app.post('/api/create-squad', async (req, res) => {
       unique: true,
       reason: 'TiX-One squad invite',
     });
+    console.log("✅ 8. Invite created:", invite.url);
 
     // Write the Discord channel ID back to the squads row in Supabase
     await supabase
       .from('squads')
       .update({ discord_channel_id: channel.id, invite_url: invite.url })
       .eq('id', squadId);
-
+    console.log("🎉 9. ALL DONE! Sending to frontend.");
     return res.json({ inviteUrl: invite.url, channelId: channel.id });
   } catch (err) {
     console.error('[api] /api/create-squad failed', err);
