@@ -318,62 +318,137 @@ app.get('/callback', async (req, res) => {
 });
 
 app.post('/api/create-squad', async (req, res) => {
-  console.log("🚨 1. REQUEST RECEIVED:", req.body);
+  console.log("🚨 REQUEST RECEIVED:", req.body);
   try {
     const { squadId, concertId, concertName } = req.body || {};
 
-    if (!squadId || !concertId) {
-      return res.status(400).json({ error: 'Missing required fields' });
+    if (!squadId || !concertId || !concertName) {
+      return res.status(400).json({
+        error: 'Missing required fields: squadId, concertId, concertName',
+      });
     }
 
+    console.log("⏳ 3. Checking if Discord Bot is ready...");
+    const guild = await getGuildOrThrow();
+    console.log("✅ 4. Bot is ready and Guild (Server) is found!");
+
+    // Every squad gets its own unique private channel — no reuse.
     const squadSlug = slugifyChannelPart(squadId).slice(0, 8);
-    const baseName = `squad-${squadSlug}`;
+    let baseName = `squad-${squadSlug}`;
+    if (baseName.length > 90) baseName = baseName.slice(0, 90);
+
     const topic = `TiX-One VIP Squad Room | SquadID: ${squadId} | ConcertID: ${concertId}`;
-
-    console.log(`⏳ 2. Using pure REST to create channel: ${baseName}...`);
-    
-    // 1. Create the Channel via REST API (Bypasses WebSocket)
-    const channel = await rest.post(
-      `/guilds/${process.env.GUILD_ID}/channels`,
-      {
-        body: {
-          name: baseName,
-          type: 0, // 0 means standard Text Channel
-          parent_id: process.env.DISCORD_CATEGORY_ID,
-          topic: topic
-        }
+    console.log(`⏳ 5. Attempting to create channel: ${baseName}...`);
+    // Create the channel.
+    const channel = await guild.channels.create({
+      name: baseName,
+      type: ChannelType.GuildText,
+      parent:categoryId,
+      topic,
+      reason: `TiX-One create-squad for squadId=${squadId}`,
+    });
+    console.log("✅ 6. Channel successfully created!");
+    // Optional: ensure the bot can create invites and send messages.
+    // (If it can't, we'll fail on invite creation or send below.)
+    const me = guild.members.me;
+    if (me) {
+      const perms = channel.permissionsFor(me);
+      if (
+        !perms?.has(PermissionsBitField.Flags.CreateInstantInvite) ||
+        !perms?.has(PermissionsBitField.Flags.SendMessages)
+      ) {
+        console.warn(
+          '[discord] bot may be missing permissions CreateInstantInvite and/or SendMessages in channel',
+          channel.id,
+        );
       }
-    );
-    console.log("✅ 3. Channel successfully created! ID:", channel.id);
+    }
 
-    console.log("⏳ 4. Creating Discord Invite link...");
-    // 2. Create the Invite via REST API
-    const invite = await rest.post(
-      `/channels/${channel.id}/invites`,
-      {
-        body: {
-          max_age: 0,
-          max_uses: 0,
-          unique: true
+    // 💥 Generate the very first AI Icebreaker dynamically!
+    if (genAI && concertId) {
+      try {
+        // Fetch the concert dynamically from Supabase
+        const { data: concert, error: dbErr } = await supabase
+          .from('concerts')
+          .select('*')
+          .eq('id', concertId)
+          .single();
+
+        if (dbErr || !concert) {
+           console.warn(`[db] ConcertID ${concertId} not found in Supabase! Error:`, dbErr);
         }
-      }
-    );
-    
-    const inviteUrl = `https://discord.gg/${invite.code}`;
-    console.log("✅ 5. Invite created:", inviteUrl);
 
-    // 3. Write back to Supabase
+        if (concert) {
+          const rawPrompt = fs.readFileSync(path.join(__dirname, 'prompt.md'), 'utf8');
+          const systemInstruction = rawPrompt
+            .replace('{{TITLE}}', concert.title)
+            .replace('{{ARTIST}}', concert.artist)
+            .replace('{{GENRE}}', concert.genre)
+            .replace('{{VENUE}}', concert.venue)
+            .replace('{{LOCATION}}', concert.location)
+            .replace('{{REGION}}', concert.region)
+            .replace('{{DATE}}', concert.date)
+            .replace('{{TIME}}', concert.time)
+            .replace('{{PRICE}}', concert.price)
+            .replace('{{DESCRIPTION}}', concert.description);
+
+          // The "Invisible Trigger" telling the AI to speak first
+          const initialPrompt = `${systemInstruction}\n\n=== CHAT HISTORY ===\nSystem: A new squad room was just created. The first human ticket holder has entered the room, but hasn't spoken yet. You are the AI Concierge. Speak first! Welcome them to the ${concert.title} squad, hype them up, and ask a fun icebreaker question to find out their concert vibe.\n\nConcierge (You):`;
+
+          const model = genAI.getGenerativeModel({ model: 'gemini-flash-latest' });
+          const result = await model.generateContent(initialPrompt);
+          const reply = result.response.text().trim();
+
+          // Send the AI's custom icebreaker!
+          if (!reply.includes('[SILENCE]')) {
+            await channel.send(reply);
+          } else {
+             // Failsafe just in case the AI bugs out
+             await channel.send(`Welcome to the TiX-One Squad for ${concertName}! Your AI Concierge is here. Say hi!`);
+          }
+        }
+      } catch (err) {
+        console.error('[ai] Failed to generate first greeting:', err);
+        await channel.send(`Welcome to the TiX-One Squad for ${concertName}! Say hi to start the chat!`);
+      }
+    } else {
+       // Failsafe if API key is missing
+       await channel.send(`Welcome to the TiX-One Squad for ${concertName}!`);
+    }
+    
+
+    console.log("⏳ 7. Creating Discord Invite link...");
+    // Create a never-expiring, unlimited-use invite.
+    const invite = await channel.createInvite({
+      maxAge: 0,
+      maxUses: 0,
+      unique: true,
+      reason: 'TiX-One squad invite',
+    });
+    console.log("✅ 8. Invite created:", invite.url);
+
+    // Write the Discord channel ID back to the squads row in Supabase
     await supabase
       .from('squads')
-      .update({ discord_channel_id: channel.id, invite_url: inviteUrl })
+      .update({ discord_channel_id: channel.id, invite_url: invite.url })
       .eq('id', squadId);
-      
-    console.log("🎉 6. ALL DONE! Sending to frontend.");
-    return res.json({ inviteUrl: inviteUrl, channelId: channel.id });
-
+    console.log("🎉 9. ALL DONE! Sending to frontend.");
+    return res.json({ inviteUrl: invite.url, channelId: channel.id });
   } catch (err) {
-    console.error('💥 [api] REST /api/create-squad failed:', err);
-    return res.status(500).json({ error: 'Failed to create squad room', details: err.message });
+    console.error('[api] /api/create-squad failed', err);
+    const isProd = process.env.NODE_ENV === 'production';
+    const details = !isProd
+      ? {
+          message: err?.message,
+          code: err?.code,
+          status: err?.status,
+        }
+      : undefined;
+
+    return res.status(500).json({
+      error: 'Failed to create squad room',
+      ...(details ? { details } : {}),
+    });
   }
 });
 
