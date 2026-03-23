@@ -111,9 +111,6 @@ client.on('error', (err) => {
   console.error('[discord] client error', err);
 });
 
-client.on('debug', (info) => console.log(`[discord-debug] ${info}`));
-client.on('warn', (warning) => console.log(`[discord-warn] ${warning}`));
-
 client
   .login(DISCORD_TOKEN)
   .catch((err) => {
