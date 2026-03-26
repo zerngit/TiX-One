@@ -1,10 +1,10 @@
 # TiX-One: Next-Gen Concert Ticketing & Squad Matching
 
-TiX-One is a modern concert ticketing platform featuring an AI-powered "Squad Matching" system that helps solo concert-goers find their perfect group based on musical vibes and personality.
+TiX-One is a modern concert ticketing platform featuring an AI-powered "Squad Matching" system that helps solo concert-goers find their perfect group based on musical vibes and personality. Not only that, it helps true fans secure concert seats and prevent commercial resellers and illegal ticket scalpers from bulk-buying and inflating prices.
 
 ## 🚀 Features
 
-- **Concert Discovery**: Browse upcoming events.
+- **Concert Discovery**: Browse upcoming concerts/events.
 - **Squad Matching Lobby**: 
   - **AI Vibe Analysis**: Uses Google Gemini to analyze user descriptions and match them with squads.
   - **Real-time Chat**: Join squad rooms and chat with other members (powered by Supabase Realtime).
