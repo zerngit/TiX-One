@@ -57,9 +57,6 @@ Our Railway backend provisions a private Discord channel where a bot acts as an 
 ### 🛡️ 4. OneChain Blockchain Anti-Scalping
 True fans deserve true prices. Tickets are minted as digital assets on the Blockchain. By utilizing smart contracts, we lock tickets to user identities, effectively killing the commercial scalper market.
 
-### 🎛️ 5. Organizer Admin Dashboard
-Built for event committees and promoters, the secure Admin Panel allows organizers to easily manage the entire event lifecycle. Organizers can seamlessly create new concerts, set venue metadata, define capacity limits, and directly trigger the smart contracts to authorize ticket minting on the blockchain.
-
 ---
 
 ## 🏗️ System Architecture
