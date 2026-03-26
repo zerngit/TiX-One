@@ -11,6 +11,11 @@ TiX-One is a modern concert ticketing platform featuring an AI-powered "Squad Ma
   - **Cyber/Neon UI**: High-fidelity glassmorphism design with Framer Motion animations.
 - **On-Chain Tickets**: (Planned/Partial) Integration with Sui blockchain for ticket assets.
 
+## 🌐 Deployment
+
+The project is deployed via Vercel. You can access the latest production and test the features build here if don't want to set up mannually:
+👉 **[TiX-One Live Web App](https://ti-x-one-deploy.vercel.app)**
+
 ## 🛠️ Setup Instructions
 
 ### 1. Prerequisites
